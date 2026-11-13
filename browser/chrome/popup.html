@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="color-scheme" content="light dark">
+<title>元芳收录</title><link rel="stylesheet" href="ui.css"></head>
+<body>
+<header class="bar"><img src="icons/icon-48.png" alt=""><span class="brand">元芳</span><span class="spacer"></span>
+<a class="link" href="options.html" target="_blank">设置</a></header>
+<main class="page">
+<p id="notice" class="notice blocked" hidden></p>
+<section id="menu" class="menu" hidden>
+<button id="capture-one" class="card" type="button"><span class="card-title">收录 1 篇</span><span id="capture-one-page" class="card-sub"></span><span id="capture-one-note" class="card-note"></span></button>
+<button id="sniff" class="card" type="button"><span class="card-title">批量嗅探</span><span id="sniff-count" class="card-sub"></span></button>
+</section>
+<section id="single" class="single" hidden><p id="single-text"></p><button class="link" id="change-dest" type="button" hidden>改去向</button></section>
+<details id="dest-box" class="dest-box"><summary><span class="label">纳入数据库路径</span><span class="value"><span id="dest-summary"></span><span id="dest-summary-why" class="why"></span></span></summary>
+<fieldset id="dest" class="dest">
+<label class="radio"><input type="radio" name="dest" id="dest-inbox" value="inbox"><span class="body"><span class="title">Inbox</span><span class="sub">新条目不放入任何文件夹；已在库里的节目只补全信息，位置不变</span></span></label>
+<label class="radio" id="dest-current-row"><input type="radio" name="dest" id="dest-current" value="current"><span class="body"><span class="title" id="dest-current-title"></span><span class="sub" id="dest-current-sub"></span></span></label>
+<div class="radio-row"><label class="radio" id="dest-custom-row"><input type="radio" name="dest" id="dest-custom" value="custom"><span class="body"><span class="title" id="dest-custom-title"></span><span class="sub" id="dest-custom-sub"></span></span></label><button class="link" id="dest-choose" type="button">选择…</button></div>
+<ul id="dest-tree" class="tree" hidden></ul>
+<div id="dest-history" class="history" hidden><span class="label">最近用过</span><span id="dest-history-list" class="chips"></span></div>
+</fieldset>
+</details>
+<p id="submitted" class="notice" hidden></p>
+<section id="picker" hidden>
+<div class="list-head"><button class="link" id="back" type="button" hidden>← 返回</button><span id="pick-count"></span><span class="spacer"></span><button class="link" id="pick-all" type="button">全选</button><button class="link" id="pick-none" type="button">全不选</button></div>
+<p id="pick-why" class="hint small held" aria-live="polite"></p>
+<ul id="candidates" class="cands"></ul>
+<details id="others" class="others"><summary id="others-summary"></summary><div class="list-head"><span class="spacer"></span><button class="link" id="pick-others" type="button">全选此组</button></div><ul id="others-list" class="cands"></ul></details>
+<p id="empty" class="hint small" hidden></p>
+<label class="check" id="include-row"><input type="checkbox" id="include-page"><span>同时收录本页</span></label>
+<p id="held" class="hint small held" aria-live="polite"></p>
+<div class="submit-bar"><p id="retry-note" class="hint small retry-note" aria-live="polite"></p>
+<button id="submit" class="primary" type="button">收录</button></div>
+</section>
+<details id="manual" class="manual"><summary>手动粘贴链接</summary>
+<textarea id="links" rows="4" spellcheck="false" placeholder="https://…" aria-label="链接，每行一个"></textarea>
+<button id="add-links" class="secondary" type="button">加入候选</button>
+</details>
+<footer class="foot"><button class="link" id="open-progress" type="button">查看进度</button><span id="progress-summary" class="progress-summary" aria-live="polite" hidden></span></footer>
+</main>
+<script type="module" src="popup.js"></script>
+</body></html>

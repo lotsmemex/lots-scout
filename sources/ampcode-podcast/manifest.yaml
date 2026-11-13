@@ -1,0 +1,34 @@
+id: ampcode.podcast
+label: Amp Podcast Episode Transcript Extractor
+version: 1.0.0
+status: trial
+source_family: ampcode
+input:
+  schema: verified-capture.v1
+  artifact_types:
+    - html
+recognize:
+  source_url:
+    scheme: https
+    host: ampcode.com
+    path_patterns:
+      - /podcast/episode-<n>
+      - /podcast/season-<n>/episode-<n>
+    number: positive_ascii_decimal
+  required_all:
+    - first artifact is html within the size limit
+    - exactly one main, one main h1 and one main .transcript
+    - no form, input or contenteditable element
+    - heading, transcript and their ancestors are not hidden
+extract:
+  title: html#main h1
+  body:
+    order: [html#main]
+  canonical_url: capture.source_url
+emit:
+  schema: extracted-draft.v1
+  item_type: webpage
+provenance:
+  extractor_used: ampcode.podcast
+  extractor_version: '1'
+  output_variants: ['1']

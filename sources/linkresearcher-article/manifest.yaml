@@ -1,0 +1,33 @@
+id: linkresearcher.article
+label: Linkresearcher Public Article Extractor
+version: 1.0.0
+status: trial
+source_family: linkresearcher
+input:
+  schema: verified-capture.v1
+  artifact_types: [application/json]
+recognize:
+  source_url:
+    scheme: https
+    host: www.linkresearcher.com
+    path_prefix: /theses/
+    article_token: lowercase_uuid
+    query: forbidden
+    fragment: forbidden
+  required_all:
+    - exactly one primary application/json artifact
+    - response id matches article URL
+    - blob source_url matches same-origin /api/theses/<id>
+extract:
+  title: response.title
+  body:
+    order: [response.wholeHtmlContent, response.content]
+  canonical_url: capture.source_url
+  images: remote_references_only
+emit:
+  schema: extracted-draft.v1
+  item_type: webpage
+provenance:
+  extractor_used: linkresearcher.article
+  extractor_version: '1'
+  output_variants: ['1', '1-editor-cleanup-v1']

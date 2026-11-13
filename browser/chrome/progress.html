@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="color-scheme" content="light dark">
+<title>元芳收录进度</title><link rel="stylesheet" href="ui.css"></head>
+<body>
+<header class="bar"><img src="icons/icon-48.png" alt=""><span class="brand">元芳</span><span class="spacer"></span>
+<a class="link" href="options.html" target="_blank">设置</a></header>
+<main class="page progress-page" id="progress-page">
+<h1>收录进度</h1>
+<div id="filters" class="filters" role="group" aria-label="筛选"></div>
+<div class="bulk"><button class="secondary" id="clear-done" type="button">清理已完成</button><button class="secondary" id="retry-failed" type="button">重试失败</button><button class="secondary" id="delete-failed" type="button">删除失败项</button><button class="secondary" id="recheck-conflicts" type="button" hidden>全部再次核对</button></div>
+<p id="bulk-note" class="hint small held" aria-live="polite"></p>
+<div id="confirm" class="notice blocked confirm" hidden><span id="confirm-text"></span><span class="spacer"></span><button class="secondary" id="confirm-cancel" type="button">取消</button><button class="secondary danger" id="confirm-ok" type="button">确认删除</button></div>
+<ul id="jobs" class="jobs"></ul>
+<p id="empty" class="hint small" hidden></p>
+</main>
+<script type="module" src="progress.js"></script>
+</body></html>

@@ -1,0 +1,8 @@
+Lots Scout
+Copyright 2026 The Lots MemeX Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It includes vendor/dom_smoothie, dom_smoothie 0.18.0 by niklak
+(https://github.com/niklak/dom_smoothie), licensed under the MIT License;
+its license text is vendor/dom_smoothie/LICENSE.

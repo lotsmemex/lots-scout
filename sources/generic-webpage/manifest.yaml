@@ -1,0 +1,29 @@
+id: generic.webpage
+label: Generic Webpage Markdown Extractor
+version: 2.0.0
+status: trial
+source_family: generic
+input:
+  schema: verified-capture.v1
+  artifact_types:
+    - text
+    - html
+recognize:
+  required_any:
+    - artifacts[].media_type=text/plain
+    - artifacts[].media_type=text/html
+    - artifacts[].media_type=application/xhtml+xml
+extract:
+  title:
+    order: [capture.title, extracted_article.title, capture.source_url]
+  canonical_url:
+    order: [capture.canonical_url, capture.source_url]
+  body:
+    order: [readability_html_markdown, verified_text_artifacts]
+emit:
+  schema: extracted-draft.v1
+  item_type: webpage
+provenance:
+  extractor_used: generic.webpage
+  extractor_version: '2'
+  output_variants: ['2', '2-comments-v1', '3-web-structure-v1']

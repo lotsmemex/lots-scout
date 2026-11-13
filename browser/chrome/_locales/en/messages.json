@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "Lots Scout"
+  },
+  "extShortName": {
+    "message": "Lots Scout"
+  },
+  "extDescription": {
+    "message": "Capture the current web page, or links you choose, as drafts for a library service running on this computer."
+  },
+  "actionTitle": {
+    "message": "Capture with Lots Scout (right-click: batch sniff this page’s links)"
+  }
+}

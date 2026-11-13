@@ -1,0 +1,23 @@
+{
+ "source": "https://ampcode.com/podcast.rss",
+ "fetched": "2026-11-08",
+ "urls": [
+  "https://ampcode.com/podcast/episode-1",
+  "https://ampcode.com/podcast/episode-2",
+  "https://ampcode.com/podcast/episode-3",
+  "https://ampcode.com/podcast/episode-4",
+  "https://ampcode.com/podcast/episode-5",
+  "https://ampcode.com/podcast/episode-6",
+  "https://ampcode.com/podcast/episode-7",
+  "https://ampcode.com/podcast/episode-8",
+  "https://ampcode.com/podcast/episode-9",
+  "https://ampcode.com/podcast/episode-10",
+  "https://ampcode.com/podcast/season-02/episode-01",
+  "https://ampcode.com/podcast/season-02/episode-02",
+  "https://ampcode.com/podcast/season-02/episode-03",
+  "https://ampcode.com/podcast/season-02/episode-04",
+  "https://ampcode.com/podcast/season-02/episode-05",
+  "https://ampcode.com/podcast/season-02/episode-06",
+  "https://ampcode.com/podcast/season-02/episode-07"
+ ]
+}

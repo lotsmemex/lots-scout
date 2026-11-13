@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "元芳"
+  },
+  "extShortName": {
+    "message": "元芳"
+  },
+  "extDescription": {
+    "message": "把当前网页或你选中的链接收录为草稿，交给本机运行的资料库服务。"
+  },
+  "actionTitle": {
+    "message": "用元芳收录（右键：批量嗅探本页链接）"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extName__",
+  "short_name": "__MSG_extShortName__",
+  "version": "0.2.2",
+  "description": "__MSG_extDescription__",
+  "default_locale": "en",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApkV+Lnp1w1i5rxe4jNgsc7gsklDRq33/RjneNOvrluRAJgqpSRu3p/yIal/gDrn3SAlcsokHeK2U+YhzyVseK5gyEG1m4CV7tqpAQ6qWWmwMWpmMNL1oQcWbYWOhUjsLSuDlZLRkE2oLlmJjnj+/rswSDPLbDuly0jualmrtj+xGMggyHPr8/0RoZEx00GSGWj3zdacAACq2CVKmKD8lyRSowx6xoEtHud31UCnKMDNPDC7crhpeQpdbJoETP3Y2IVpNeNj+eimd57u+3tWyfQ+4cKnLVwlEZddfVDTRrH384qQH3DfoAWbYCS+o4dZfAbnyi/OEQ+wkanqUEP/gjQIDAQAB",
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "scripting",
+    "sidePanel",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "__MSG_actionTitle__",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    },
+    "default_popup": "popup.html"
+  },
+  "side_panel": {
+    "default_path": "progress.html"
+  },
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

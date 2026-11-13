@@ -1,0 +1,59 @@
+id: weixin.article
+label: WeChat Official Account Article Extractor
+version: 3.0.0
+status: trial
+source_family: weixin
+input:
+  schema: verified-capture.v1
+  artifact_types:
+    - html
+    - image/png
+    - image/jpeg
+    - image/gif
+    - image/webp
+recognize:
+  source_url:
+    scheme: https
+    host: mp.weixin.qq.com
+    path_prefix: /s/
+    article_token: single_segment_ascii_alphanumeric_hyphen_underscore
+    fragment: forbidden
+  required_all:
+    - exactly one artifact media_type=text/html|application/xhtml+xml
+    - html#js_content exactly once
+    - every body image has one captured source_url match
+    - every captured image is used
+extract:
+  title:
+    order:
+      - capture.title
+      - html#activity-name
+      - meta[property=og:title]
+      - capture.source_url
+  canonical_url:
+    order: [capture.canonical_url, capture.source_url]
+  body:
+    order: [html#js_content]
+  images:
+    lazy_source: data-src
+    output: attachments/sha256-<digest>.<ext>
+    ownership: store_evidence
+  headings:
+    item_title: h1
+    body_h1: h2
+    primary_numbered: h2
+    secondary_numbered: h3
+    promotion_max_non_whitespace_chars: 64
+    promotion_min_block_coverage_percent: 85
+  emphasis:
+    candidates: [strong, b, css_font_weight_600_plus, css_exact_red]
+    decorative_max_non_whitespace_chars: 80
+    decorative_min_block_coverage_percent: 85
+emit:
+  schema: extracted-draft.v1
+  item_type: webpage
+  attachment_kind: captured_blob_occurrence
+provenance:
+  extractor_used: weixin.article
+  extractor_version: '3'
+  output_variants: ['3', '3-comments-v1']

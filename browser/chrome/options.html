@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="color-scheme" content="light dark">
+<title>元芳收录设置</title><link rel="stylesheet" href="ui.css"></head>
+<body>
+<header class="bar"><img src="icons/icon-48.png" alt=""><span class="brand">元芳</span><span class="spacer"></span>
+<a class="link" href="batch.html">批量收录</a></header>
+<main class="page">
+<h1>收录设置</h1>
+<form id="settings">
+<div class="field"><label for="endpoint">Mac 收录入口</label>
+<input id="endpoint" type="url" required spellcheck="false" placeholder="http://127.0.0.1:端口/api/v1/captures">
+<p class="hint small" style="margin:6px 0 0">本机运行的收录服务地址。</p></div>
+<div class="field"><label for="secret">连接密钥</label>
+<div class="row"><input id="secret" type="password" autocomplete="off" spellcheck="false"><span id="secret-state" class="saved"></span></div>
+<p class="hint small" style="margin:6px 0 0">用于扩展与本机服务的安全通信，64 位小写十六进制。</p></div>
+<button class="primary" type="submit">保存</button>
+<p id="status" class="hint small" aria-live="polite" style="margin-top:8px"></p>
+</form>
+<div class="toggle"><div><div class="title">默认开启模型检查</div><div class="sub" id="quality-sub">收录后让 Mac 上配置的模型检查正文与格式。</div></div>
+<label class="switch"><input type="checkbox" id="default-quality" aria-label="默认开启模型检查"><span></span></label></div>
+<div class="toggle"><div><div class="title">默认同时收录评论</div><div class="sub" id="comments-sub">只取页面上已加载的评论区，与正文分开保存。</div></div>
+<label class="switch"><input type="checkbox" id="default-comments" aria-label="默认同时收录评论"><span></span></label></div>
+<div class="toggle"><div><div class="title">界面语言</div></div>
+<select id="ui-lang" aria-label="界面语言"><option value="system">跟随系统</option><option value="zh">中文</option><option value="en">English</option></select></div>
+<p class="info">模型只在你的 Mac 上运行，扩展不保存任何模型密钥。</p>
+<p class="info"><strong>权限：</strong>当前标签页（仅在你点击时）、右键菜单、本机 127.0.0.1。不读取 Cookie、浏览记录、表单或其他标签页。<br>
+扩展来源：<code id="extension-origin"></code>（在 Mac 收录服务里登记这一来源）</p>
+</main>
+<script type="module" src="options.js"></script>
+</body></html>
