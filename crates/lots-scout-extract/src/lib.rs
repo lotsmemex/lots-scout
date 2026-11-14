@@ -27,7 +27,10 @@ mod weixin;
 pub use weixin::WeixinAssets;
 pub mod web;
 pub mod ratings;
-pub use lots_scout_types::{Rating, RatingMetric};
+pub mod titles;
+pub use lots_scout_types::{
+    normalize_title_lang, ItemTitle, Rating, RatingMetric, TitleKind, TitleSource,
+};
 
 const MAX_HTML_BYTES: usize = 8 * 1024 * 1024;
 const MAX_HTML_ELEMENTS: usize = 100_000;

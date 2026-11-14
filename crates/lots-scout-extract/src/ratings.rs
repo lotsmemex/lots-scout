@@ -259,26 +259,46 @@ pub fn parse_omdb_rotten_tomatoes(body: &str, fetched_at: &str) -> Result<Option
     Ok(None)
 }
 
-/// Ratings shown on a captured Douban or Goodreads page, read from the page
+/// The rated page a URL is, if any: rating source, metric, default scale
+/// and the item type of what the page describes.
+fn rated_page(source_url: &str) -> Option<(&'static str, RatingMetric, &'static str, &'static str)> {
+    let url = Url::parse(source_url).ok()?;
+    let host = url.host_str()?.to_ascii_lowercase();
+    let path = url.path();
+    Some(match host.as_str() {
+        "book.douban.com" if path.starts_with("/subject/") => {
+            ("douban", RatingMetric::DoubanBook, "10", "book")
+        }
+        "movie.douban.com" if path.starts_with("/subject/") => {
+            ("douban", RatingMetric::DoubanMovie, "10", "film")
+        }
+        "www.goodreads.com" | "goodreads.com" if path.starts_with("/book/show/") => {
+            ("goodreads", RatingMetric::Goodreads, "5", "book")
+        }
+        "www.imdb.com" | "imdb.com" | "m.imdb.com" => {
+            // Only the title's main page, not its reviews, cast or other subpages.
+            let mut segments = path.trim_end_matches('/').split('/').skip(1);
+            match (segments.next(), segments.next().and_then(imdb_title_id), segments.next()) {
+                (Some("title"), Some(_), None) => ("imdb", RatingMetric::Imdb, "10", "film"),
+                _ => return None,
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// The item type of a page that describes a book or a film, such as a
+/// Douban subject, a Goodreads book or an IMDb title page.
+pub fn page_item_type(source_url: &str) -> Option<&'static str> {
+    rated_page(source_url).map(|(_, _, _, item_type)| item_type)
+}
+
+/// Ratings shown on a captured Douban, Goodreads or IMDb title page, read from the page
 /// itself: the rating, its scale and the number of raters. Other sites, and
 /// pages without a rating, give none. `fetched_at` is the capture time.
 pub fn page_ratings(source_url: &str, html: &str, fetched_at: &str) -> Vec<Rating> {
-    let Ok(url) = Url::parse(source_url) else {
+    let Some((source, metric, default_scale, _)) = rated_page(source_url) else {
         return Vec::new();
-    };
-    let host = url.host_str().unwrap_or("").to_ascii_lowercase();
-    let path = url.path();
-    let (source, metric, default_scale) = match host.as_str() {
-        "book.douban.com" if path.starts_with("/subject/") => {
-            ("douban", RatingMetric::DoubanBook, "10")
-        }
-        "movie.douban.com" if path.starts_with("/subject/") => {
-            ("douban", RatingMetric::DoubanMovie, "10")
-        }
-        "www.goodreads.com" | "goodreads.com" if path.starts_with("/book/show/") => {
-            ("goodreads", RatingMetric::Goodreads, "5")
-        }
-        _ => return Vec::new(),
     };
     let document = dom_query::Document::from(html);
     let found = if source == "douban" {
@@ -552,5 +572,24 @@ mod tests {
         let out_of_scale = goodreads.replace("4.33", "7.5");
         assert!(page_ratings("https://www.goodreads.com/book/show/1", &out_of_scale, AT).is_empty());
         assert!(page_ratings("https://www.goodreads.com/review/list/1", goodreads, AT).is_empty());
+    }
+
+    #[test]
+    fn imdb_title_pages_give_their_rating_and_film_type() {
+        let page = r#"<script type="application/ld+json">{"@context":"https://schema.org",
+            "@type":"Movie","url":"https://www.imdb.com/title/tt0111161/","name":"The Shawshank Redemption",
+            "aggregateRating":{"@type":"AggregateRating","ratingCount":3012345,"bestRating":10,
+            "worstRating":1,"ratingValue":9.3}}</script>"#;
+        let r = page_ratings("https://www.imdb.com/title/tt0111161/?ref_=chttp_t_1", page, AT);
+        assert_eq!(r.len(), 1);
+        assert_eq!((r[0].source.as_str(), r[0].metric), ("imdb", RatingMetric::Imdb));
+        assert_eq!((r[0].value.as_str(), r[0].scale.as_deref()), ("9.3", Some("10")));
+        assert_eq!(r[0].count, Some(3012345));
+        assert_eq!(page_item_type("https://m.imdb.com/title/tt0111161"), Some("film"));
+        assert_eq!(page_item_type("https://book.douban.com/subject/1/"), Some("book"));
+        assert!(page_ratings("https://www.imdb.com/title/tt0111161/reviews", page, AT).is_empty());
+        assert!(page_ratings("https://www.imdb.com/chart/top/", page, AT).is_empty());
+        assert_eq!(page_item_type("https://www.imdb.com/title/tt0111161/reviews"), None);
+        assert_eq!(page_item_type("https://example.com/"), None);
     }
 }

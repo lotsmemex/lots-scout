@@ -40,11 +40,11 @@ cd browser/chrome && npm test && npm run package   # writes dist/lots-scout-chro
 
 ```toml
 [dependencies]
-lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.3" }
+lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.4" }
 
 # Cargo does not pass patches on to dependents; repeat this one in your workspace.
 [patch.crates-io]
-dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.3" }
+dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.4" }
 ```
 
 `lots_scout_extract::extract(&capture)` picks the extractor that recognizes a verified
