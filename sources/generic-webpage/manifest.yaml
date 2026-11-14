@@ -20,6 +20,9 @@ extract:
     order: [capture.canonical_url, capture.source_url]
   body:
     order: [readability_html_markdown, verified_text_artifacts]
+  ratings:
+    hosts: [book.douban.com, movie.douban.com, www.goodreads.com]
+    order: [douban_rdfa, json_ld_aggregate_rating]
 emit:
   schema: extracted-draft.v1
   item_type: webpage

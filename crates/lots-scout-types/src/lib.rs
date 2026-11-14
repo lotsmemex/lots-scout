@@ -107,6 +107,34 @@ pub struct VerifiedCapture {
     pub blobs: Vec<VerifiedBlob>,
 }
 
+/// The rating metrics an item can carry. Serialized names are the stored
+/// metric names, so they must not change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RatingMetric {
+    DoubanBook,
+    Goodreads,
+    Imdb,
+    DoubanMovie,
+    RottenTomatoes,
+    CitationCount,
+}
+
+/// One rating of an item from one source. `value` and `scale` are decimal
+/// strings so comparisons stay exact; counts such as citations leave `scale`
+/// empty. `fetched_at` is an RFC 3339 UTC timestamp.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rating {
+    pub source: String,
+    pub metric: RatingMetric,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u64>,
+    pub fetched_at: String,
+}
+
 /// What an extractor produces from one capture. Bibliographic metadata is
 /// not part of it: the library adds that when it turns a draft into an item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -120,4 +148,7 @@ pub struct ExtractedDraft {
     pub extractor_id: String,
     pub extractor_version: String,
     pub attachments: Vec<DraftAttachmentRef>,
+    /// Ratings shown on the captured page itself, such as a Douban score.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ratings: Vec<Rating>,
 }

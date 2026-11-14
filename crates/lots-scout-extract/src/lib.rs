@@ -26,6 +26,8 @@ pub use amp_podcast::AmpPodcastExtractor;
 mod weixin;
 pub use weixin::WeixinAssets;
 pub mod web;
+pub mod ratings;
+pub use lots_scout_types::{Rating, RatingMetric};
 
 const MAX_HTML_BYTES: usize = 8 * 1024 * 1024;
 const MAX_HTML_ELEMENTS: usize = 100_000;
@@ -510,6 +512,14 @@ impl Extractor for GenericWebpageExtractor {
                 &extracted.html, &capture.capture.source_url, &capture.blobs,
             )?;
         }
+        let ratings = match html {
+            Some(blob) => ratings::page_ratings(
+                &capture.capture.source_url,
+                blob_text(blob)?,
+                &capture.capture.captured_at,
+            ),
+            None => Vec::new(),
+        };
         Ok(ExtractedDraft {
             item_type: "webpage".into(),
             title,
@@ -527,6 +537,7 @@ impl Extractor for GenericWebpageExtractor {
             }
             .into(),
             attachments,
+            ratings,
         })
     }
 }
@@ -764,6 +775,7 @@ impl Extractor for WeixinArticleExtractor {
             }
             .into(),
             attachments,
+            ratings: Vec::new(),
         })
     }
 }

@@ -67,6 +67,7 @@ impl Extractor for AmpPodcastExtractor {
             content_markdown: canonical_markdown(markdown)?, sensitivity: capture.capture.sensitivity,
             extractor_id: self.id().into(), extractor_version: self.version().into(),
             attachments: Vec::new(),
+            ratings: Vec::new(),
         })
     }
 }

@@ -34,11 +34,11 @@ cd browser/chrome && npm test && npm run package   # 生成 dist/lots-scout-chro
 
 ```toml
 [dependencies]
-lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.2" }
+lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.3" }
 
 # Cargo 不会把 patch 传给下游，需要在你的 workspace 里再写一次。
 [patch.crates-io]
-dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.2" }
+dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.3" }
 ```
 
 `lots_scout_extract::extract(&capture)` 会挑出能识别这份已校验抓取的提取器，返回一份 `ExtractedDraft`。

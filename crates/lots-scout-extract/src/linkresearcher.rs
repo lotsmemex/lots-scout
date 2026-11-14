@@ -134,6 +134,7 @@ impl Extractor for LinkresearcherArticleExtractor {
             }
             .into(),
             attachments: Vec::new(),
+            ratings: Vec::new(),
         })
     }
 }

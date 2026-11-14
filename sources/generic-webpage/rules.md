@@ -30,7 +30,12 @@ ambiguous and fail closed.
    - Resolve retained relative links/images against an absolute credential-free HTTP(S)
      `capture.source_url`; retain only HTTP(S) destinations and do not fetch them.
    - Without HTML, join verified UTF-8 text artifacts in envelope order for backward compatibility.
-4. **Sensitivity**
+4. **Ratings**
+   - Only for Douban book/movie subject pages and Goodreads book pages: read the rating the
+     page shows, its scale and the number of raters into `ratings`, timed by `captured_at`.
+   - Douban: RDFa `v:average` / `v:best` / `v:votes`, then JSON-LD `aggregateRating`;
+     Goodreads: JSON-LD `aggregateRating`, scale 5 when absent. Unrated pages give none.
+5. **Sensitivity**
    - Store takes the stricter value of SourceProfile and CaptureEnvelope.
 
 ## Emit Markdown
