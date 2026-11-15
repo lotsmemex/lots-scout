@@ -170,6 +170,11 @@ export function extractArticleSnapshot(options = {}) {
     candidates = [...document.querySelectorAll(prose)].filter((node) =>
       !insideComments(node) && !node.parentElement?.closest(prose));
   }
+  // Last resort: a container named "article", such as Douban's subject pages (div.article).
+  if (candidates.length === 0) {
+    candidates = [...document.querySelectorAll(".article")].filter((node) =>
+      !insideComments(node) && !node.parentElement?.closest(".article"));
+  }
   if (candidates.length === 0 || candidates.length > MAX_ARTICLE_CANDIDATES) {
     throw new Error("article_not_found");
   }

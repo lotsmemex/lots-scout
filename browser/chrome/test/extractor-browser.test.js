@@ -299,3 +299,32 @@ document.documentElement.setAttribute('data-result', encodeURIComponent(JSON.str
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("a page whose only content container is div.article (Douban subject) is captured with its rating markup", { skip: !chrome }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "scout-douban-test-"));
+  try {
+    const extractor = readFileSync(new URL("../extractor.js", import.meta.url), "utf8")
+      .replace("export function extractArticleSnapshot", "function extractArticleSnapshot");
+    const fixture = `<!doctype html><html><head><title>花样年华 (豆瓣)</title></head><body>
+<div id="db-nav-movie">导航</div><div id="content"><h1>花样年华 (2000)</h1><div class="grid-16-8 clearfix">
+<div class="article"><div id="info">导演: 王家卫</div>
+<div id="interest_sectl"><strong class="ll rating_num" property="v:average">8.8</strong>
+<span property="v:best" content="10.0"></span><a><span property="v:votes">827934</span>人评价</a></div>
+<div class="related-info"><span property="v:summary">${"一九六二年的香港，周慕云与苏丽珍成为邻居。".repeat(12)}</span></div></div>
+<div class="aside">推荐</div></div></div><script>
+${extractor}
+try {
+  const s = extractArticleSnapshot();
+  document.documentElement.setAttribute('data-result', encodeURIComponent(JSON.stringify(s)));
+} catch (e) { document.documentElement.setAttribute('data-result', encodeURIComponent(JSON.stringify({error:e.message}))); }
+</script></body></html>`;
+    const path = join(root, "fixture.html");
+    writeFileSync(path, fixture);
+    const s = JSON.parse(decodeURIComponent(await runFixture(chrome, join(root, "profile"), pathToFileURL(path).href)));
+    assert.equal(s.error, undefined);
+    assert.match(s.html, /property="v:average"[^>]*>8\.8</);
+    assert.match(s.html, /property="v:votes"[^>]*>827934</);
+    assert.match(s.html, /property="v:best" content="10\.0"/);
+    assert.doesNotMatch(s.html, /导航|推荐/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

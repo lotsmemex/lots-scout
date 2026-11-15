@@ -23,6 +23,29 @@
 
 更新时，把新版本解压覆盖到同一个文件夹，再在 `chrome://extensions` 里点扩展卡片上的刷新按钮。
 
+## 让 AI Agent 读公众号文章（MCP）
+
+`lots-scout-mcp` 是一个本机 MCP 小服务，只有一个工具 `read_wechat_article`：给它公众号文章链接（`https://mp.weixin.qq.com/s/...`），返回整理好的 Markdown，带标题、公众号名和发布时间。
+
+它在你自己的 Mac 上、用你自己的网络读取。微信会给云端服务器弹验证页，但对普通的本机请求直接给出公开文章。它不登录、不带 cookie、不用代理，也不破解或绕过验证：微信要求验证时，结果是 `verify_required`，请你在自己的浏览器里打开这篇文章。
+
+Chrome 扩展装不下它（扩展不能开本机端口，也不能被 Agent 启动），所以需要单独装一次：
+
+```sh
+mkdir -p ~/.local/bin
+curl -L https://github.com/lotsmemex/lots-scout/releases/latest/download/lots-scout-mcp-macos-arm64.tar.gz | tar -xz -C ~/.local/bin
+```
+
+预编译版本适用于 Apple 芯片的 Mac。其他系统请自行编译：`cargo install --git https://github.com/lotsmemex/lots-scout lots-scout-mcp`。
+
+然后加到你用的 Agent 里：
+
+- Amp：`amp mcp add wechat-reader -- ~/.local/bin/lots-scout-mcp`
+- Claude Code：`claude mcp add --scope user wechat-reader -- ~/.local/bin/lots-scout-mcp`
+- Cursor 等：添加一个 stdio 服务，命令为 `~/.local/bin/lots-scout-mcp`。
+
+在终端里也能用：`lots-scout-mcp read <链接>`。
+
 ## 构建与测试
 
 ```sh
@@ -34,11 +57,11 @@ cd browser/chrome && npm test && npm run package   # 生成 dist/lots-scout-chro
 
 ```toml
 [dependencies]
-lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.4" }
+lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.5" }
 
 # Cargo 不会把 patch 传给下游，需要在你的 workspace 里再写一次。
 [patch.crates-io]
-dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.4" }
+dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.5" }
 ```
 
 `lots_scout_extract::extract(&capture)` 会挑出能识别这份已校验抓取的提取器，返回一份 `ExtractedDraft`。

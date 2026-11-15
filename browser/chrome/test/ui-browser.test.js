@@ -48,13 +48,25 @@ const mock = (cfg) => `(() => {
   localStorage.setItem("memex.lang", "zh");
   const mem = Object.assign({ endpoint: "http://127.0.0.1:3210/api/v1/captures", intakeSecret: "${"b".repeat(64)}" }, cfg.store);
   const listeners = [];
-  Object.assign(window, { __mem: mem, __sent: [], __fetch: [], __open: [], __permissions: [] });
+  Object.assign(window, { __mem: mem, __sent: [], __fetch: [], __open: [], __permissions: [], __stored: [], __console: [] });
+  for (const level of ["log", "info", "warn", "error", "debug"]) {
+    const original = console[level].bind(console);
+    console[level] = (...args) => { __console.push(args.map(String).join(" ")); original(...args); };
+  }
   window.fetch = async (url, init) => {
     const route = new URL(String(url)).pathname;
     __fetch.push([route, init && init.body]);
     const json = (body) => new Response(JSON.stringify({ schema_version: 1, ...body }), { status: 200 });
     if (route === "/api/v1/capabilities") return json({ features: cfg.features });
     if (route === "/api/v1/active-group") return json(cfg.active);
+    if (route.startsWith("/api/v1/secrets/")) {
+      const body = JSON.parse(init.body);
+      if (body.name !== "omdb_api_key") return new Response(JSON.stringify({ error: "unknown_secret" }), { status: 400 });
+      if (cfg.secretStatus && !route.endsWith("/status")) return new Response(JSON.stringify(cfg.secretStatus[1]), { status: cfg.secretStatus[0] });
+      if (route.endsWith("/set")) cfg.secretSet = body.value !== "";
+      if (route.endsWith("/test")) return json(cfg.secretTest);
+      return json({ set: cfg.secretSet === true });
+    }
     if (route === "/api/v1/groups") {
       if (window.__holdGroups) await new Promise((resolve) => { window.__releaseGroups = resolve; });
       return json({ groups_version: "x", nodes: cfg.nodes });
@@ -76,7 +88,9 @@ const mock = (cfg) => `(() => {
       local: { get, set: async (o) => { Object.assign(mem, structuredClone(o));
         const changes = Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { newValue: structuredClone(v) }]));
         listeners.forEach((fn) => fn(changes, "local")); } },
-      session: { get: async () => ({ pendingSniff: cfg.pendingSniff || null }), remove: async () => {} },
+      session: { get: async () => ({ pendingSniff: cfg.pendingSniff || null }), remove: async () => {},
+        set: async (o) => { __stored.push(["session", JSON.stringify(o)]); } },
+      sync: { get: async () => ({}), set: async (o) => { __stored.push(["sync", JSON.stringify(o)]); } },
       onChanged: { addListener: (fn) => listeners.push(fn) }
     }
   };
@@ -143,7 +157,8 @@ async function withChrome(run) {
       const settle = () => new Promise((resolve) => setTimeout(resolve, 300));
       const click = async (selector) => { await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`); await settle(); };
       // Mounted and probed: the destination summary is filled after the first probe and folder reads.
-      await waitFor(path === "progress.html" ? `document.getElementById("filters")?.childElementCount > 0`
+      await waitFor(path === "options.html" ? `window.__fetch?.some(([r]) => r === "/api/v1/capabilities") && document.getElementById("omdb-sub")?.textContent !== ""`
+        : path === "progress.html" ? `document.getElementById("filters")?.childElementCount > 0`
         : `window.__fetch?.some(([r]) => r === "/api/v1/capabilities") && document.getElementById("dest-summary")?.textContent !== ""`);
       await settle();
       const screenshot = async (name) => {
@@ -677,5 +692,73 @@ test("protected Inbox web identities survive missing capabilities and failed pro
       assert.deepEqual(result,{capture:{ok:false,code:"web_identity_protected"},submit:{ok:false},reads:0,posts:0,unchanged:true});
       await p.close();
     }
+  });
+});
+
+test("options page in Chrome: the OMDb key goes only to the Mac and is never kept by the extension", { skip: !CHROME_BIN }, async () => {
+  await withChrome(async (open) => {
+    const secretCalls = (p) => p.evaluate(`__fetch.filter(([r]) => r.startsWith("/api/v1/secrets/")).map(([r, b]) => [r, JSON.parse(b)])`);
+    const hidden = (p, id) => p.evaluate(`document.getElementById(${JSON.stringify(id)}).hidden`);
+
+    const old = await open("options.html", { features: ["url-jobs-v1"] });
+    assert.equal(await text(old, "omdb-sub"), "等 Mac 端开放后可用");
+    assert.equal(await hidden(old, "omdb-entry"), true);
+    assert.deepEqual(await secretCalls(old), []);
+    await old.close();
+
+    const p = await open("options.html", { features: ["url-jobs-v1", "secrets-v1"], secretSet: false,
+      secretTest: { ok: true, rotten_tomatoes: "89" } });
+    assert.equal(await text(p, "omdb-state"), "· 未设置");
+    assert.equal(await hidden(p, "omdb-entry"), false);
+    assert.equal(await hidden(p, "omdb-actions"), true);
+    await p.evaluate(`document.querySelector("#omdb-guide").open = true`);
+    await p.evaluate(`document.getElementById("omdb-section").scrollIntoView()`);
+    await p.screenshot("options-omdb-unset");
+
+    await p.evaluate(`document.getElementById("omdb").value = "ab c"`);
+    await p.click("#omdb-save");
+    assert.match(await text(p, "omdb-result"), /不像 OMDb key/);
+    assert.equal((await secretCalls(p)).filter(([r]) => r.endsWith("/set")).length, 0);
+
+    await p.evaluate(`document.getElementById("omdb").value = " a1b2c3d4 "`);
+    await p.click("#omdb-save");
+    assert.deepEqual((await secretCalls(p)).at(-1), ["/api/v1/secrets/set", { schema_version: 1, name: "omdb_api_key", value: "a1b2c3d4" }]);
+    assert.equal(await p.evaluate(`document.getElementById("omdb").value`), "");
+    assert.equal(await text(p, "omdb-state"), "· 已设置");
+    assert.equal(await hidden(p, "omdb-entry"), true);
+    assert.equal(await hidden(p, "omdb-actions"), false);
+    // Nothing the extension stores holds the key.
+    assert.deepEqual(await p.evaluate(`[JSON.stringify(__mem), JSON.stringify(localStorage), JSON.stringify(__stored),
+      JSON.stringify(__console), document.documentElement.outerHTML].filter((s) => s.includes("a1b2c3d4")).length`), 0);
+
+    await p.click("#omdb-test");
+    assert.equal(await text(p, "omdb-result"), "✓ 测试成功：《肖申克的救赎》（tt0111161）烂番茄 89%");
+    await p.evaluate(`document.getElementById("omdb-section").scrollIntoView()`);
+    await p.screenshot("options-omdb-set-ok");
+
+    await p.click("#omdb-replace");
+    assert.equal(await hidden(p, "omdb-entry"), false);
+    assert.equal(await hidden(p, "omdb-cancel"), false);
+    await p.click("#omdb-cancel");
+    assert.equal(await hidden(p, "omdb-actions"), false);
+
+    await p.click("#omdb-clear");
+    assert.deepEqual((await secretCalls(p)).at(-1), ["/api/v1/secrets/set", { schema_version: 1, name: "omdb_api_key", value: "" }]);
+    assert.equal(await text(p, "omdb-state"), "· 未设置");
+    assert.equal(await text(p, "omdb-result"), "已从 Mac 清除。");
+    await p.close();
+
+    const bad = await open("options.html", { features: ["secrets-v1"], secretSet: true, secretTest: { ok: false, code: "rejected" } });
+    await bad.click("#omdb-test");
+    assert.match(await text(bad, "omdb-result"), /OMDb 拒绝了这个 key/);
+    await bad.evaluate(`document.getElementById("omdb-section").scrollIntoView()`);
+    await bad.screenshot("options-omdb-set-bad");
+    await bad.close();
+
+    const locked = await open("options.html", { features: ["secrets-v1"], secretSet: true, secretStatus: [503, { error: "unavailable" }] });
+    await locked.click("#omdb-clear");
+    assert.equal(await text(locked, "omdb-result"), "Mac 的钥匙串暂时不可用，请稍后再试。");
+    assert.equal(await text(locked, "omdb-state"), "· 已设置");
+    await locked.close();
   });
 });

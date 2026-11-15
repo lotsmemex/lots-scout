@@ -645,6 +645,19 @@ impl Extractor for WeixinArticleExtractor {
     }
 
     fn extract(&self, capture: &VerifiedCapture) -> Result<ExtractedDraft> {
+        self.extract_with(capture, false)
+    }
+}
+
+impl WeixinArticleExtractor {
+    /// Like `extract`, but images without a captured blob keep their original
+    /// http(s) link instead of failing the article. For reading, not for a library
+    /// item, which must hold every image locally.
+    pub fn extract_with_remote_images(&self, capture: &VerifiedCapture) -> Result<ExtractedDraft> {
+        self.extract_with(capture, true)
+    }
+
+    fn extract_with(&self, capture: &VerifiedCapture, remote_images: bool) -> Result<ExtractedDraft> {
         let html = Self::page_html(capture)?;
         preflight_html_elements(html)?;
 
@@ -727,9 +740,13 @@ impl Extractor for WeixinArticleExtractor {
                 .join(source.trim())
                 .context("WeChat article image source is invalid")?
                 .to_string();
-            let (index, blob, relative_path) = captured_images
-                .get(&source)
-                .context("WeChat article image was not captured")?;
+            let Some((index, blob, relative_path)) = captured_images.get(&source) else {
+                if remote_images {
+                    image.set_attr("src", &source);
+                    continue;
+                }
+                bail!("WeChat article image was not captured");
+            };
             image.set_attr("src", relative_path);
             used_images.insert(*index);
             // Distinct CDN URLs can serve identical bytes. Keep both source

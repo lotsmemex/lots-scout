@@ -83,7 +83,7 @@ async function captureTab(tabId, destination = { mode: "inbox" }) {
     // Deliberately do not log errors: settings, URLs, metadata and intake receipts stay private.
     if (tabId) await badge(tabId, "!", "#b42318");
     const message = String(error?.message || "");
-    return { ok: false, code: KNOWN.has(message) || /^intake_\d{3}$/.test(message) ? message : message === "invalid_snapshot" ? "no_article" : "failed" };
+    return { ok: false, code: KNOWN.has(message) || /^intake_\d{3}$/.test(message) ? message : ["invalid_snapshot", "article_not_found"].includes(message) ? "no_article" : "failed" };
   }
 }
 

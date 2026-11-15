@@ -29,6 +29,29 @@ The extension is not in the Chrome Web Store yet. Chrome only installs it from a
 To update, unzip the new release over the same folder and click the reload button on the
 extension's card in `chrome://extensions`.
 
+## Read WeChat articles from your AI agent (MCP)
+
+`lots-scout-mcp` is a small local MCP server with one tool, `read_wechat_article`. Give it a public WeChat Official Account link (`https://mp.weixin.qq.com/s/...`) and it returns clean Markdown with the title, account name and publish time.
+
+It runs on your own Mac and network. WeChat shows cloud servers a verification page, but serves the public article to an ordinary local request. It logs in nowhere, sends no cookies, uses no proxy and never solves or bypasses a verification page: when WeChat asks for one, the result is `verify_required`, and you open the article in your own browser.
+
+The Chrome extension cannot host it (extensions cannot open local ports or be started by agents), so install it once:
+
+```sh
+mkdir -p ~/.local/bin
+curl -L https://github.com/lotsmemex/lots-scout/releases/latest/download/lots-scout-mcp-macos-arm64.tar.gz | tar -xz -C ~/.local/bin
+```
+
+Prebuilt for Apple Silicon Macs. On other systems, build it: `cargo install --git https://github.com/lotsmemex/lots-scout lots-scout-mcp`.
+
+Then add it to your agent:
+
+- Amp: `amp mcp add wechat-reader -- ~/.local/bin/lots-scout-mcp`
+- Claude Code: `claude mcp add --scope user wechat-reader -- ~/.local/bin/lots-scout-mcp`
+- Cursor and others: a stdio server whose command is `~/.local/bin/lots-scout-mcp`.
+
+It also works from a terminal: `lots-scout-mcp read <link>`.
+
 ## Build and test
 
 ```sh
@@ -40,11 +63,11 @@ cd browser/chrome && npm test && npm run package   # writes dist/lots-scout-chro
 
 ```toml
 [dependencies]
-lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.4" }
+lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.5" }
 
 # Cargo does not pass patches on to dependents; repeat this one in your workspace.
 [patch.crates-io]
-dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.4" }
+dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.5" }
 ```
 
 `lots_scout_extract::extract(&capture)` picks the extractor that recognizes a verified

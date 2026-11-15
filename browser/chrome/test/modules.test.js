@@ -36,3 +36,17 @@ test("both modules load and work with no browser globals present", async () => {
   const fromJobs = await import("../jobs.js");
   assert.equal(fromJobs.isTerminal, model.isTerminal);
 });
+
+test("the package holds every file its pages and modules load", () => {
+  const dir = new URL("../", import.meta.url);
+  const files = JSON.parse(readFileSync(new URL("scripts/package.js", dir), "utf8").match(/const files = (\[[\s\S]*?\]);/)[1]);
+  const missing = [];
+  for (const file of files.filter((f) => /\.(js|html)$/.test(f))) {
+    const src = readFileSync(new URL(file, dir), "utf8");
+    const refs = file.endsWith(".html")
+      ? [...src.matchAll(/(?:src|href)="([^":#?]+\.(?:js|css|html))"/g)].map((m) => m[1])
+      : [...src.matchAll(/(?:from|import\()\s*["']\.\/([^"']+)["']/g)].map((m) => m[1]);
+    for (const ref of refs) if (!files.includes(ref)) missing.push(`${file} -> ${ref}`);
+  }
+  assert.deepEqual(missing, []);
+});
