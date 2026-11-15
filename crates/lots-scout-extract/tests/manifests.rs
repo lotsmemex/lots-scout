@@ -59,5 +59,5 @@ fn every_extractor_has_a_matching_manifest() {
             assert!(source.contains(&format!("\"{variant}\"")), "{variant} not produced by code");
         }
     }
-    assert!(manifests.is_empty(), "manifests without a extractor: {:?}", manifests.keys());
+    assert!(manifests.is_empty(), "manifests without an extractor: {:?}", manifests.keys());
 }

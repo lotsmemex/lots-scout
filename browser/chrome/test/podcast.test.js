@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { discoverCapabilities } from "../capture.js";
 import { ACTIVE_GROUP_ROUTE, resolveActiveGroup } from "../destination.js";
 import { advance, httpTransport, loadActive, newJob, parseLinks, persistable, planFor, prepareSend, removeFinished, willEnqueue } from "../jobs.js";
-import { describe, isPodcastEpisode, isTerminal, summarizePodcast } from "../progress-model.js";
+import { describe, isPodcastEpisode, isTerminal } from "../progress-model.js";
 
 const ENDPOINT = "http://127.0.0.1:3210/api/v1/captures";
 const SECRET = "b".repeat(64);
@@ -228,14 +228,6 @@ test("a pending job whose first send may have left is not treated as a first sen
   const [reloaded] = persistable([prepareSend(newJob(EPISODE, INBOX), transport)]);
   assert.equal(reloaded.sends, 1);
   assert.equal((await sendOnce(reloaded, transport)).state, "unconfirmed");
-});
-
-test("summary counts submitted, in progress, done, failed, unknown and needs-you", () => {
-  const base = newJob(EPISODE, INBOX);
-  const jobs = [{ ...base, job_id: "a", state: "succeeded" }, { ...base, job_id: "b", state: "queued" }, { ...base, job_id: "c", state: "failed" },
-    { ...base, state: "unknown" }, { ...base, state: "unconfirmed" }, { ...base, state: "pending" }];
-  const { count } = summarizePodcast(jobs);
-  assert.deepEqual([count.submitted, count.busy, count.done, count.failed, count.unknown, count.needs], [3, 2, 1, 1, 1, 1]);
 });
 
 test("the extension ships no folder IDs", () => {

@@ -5,8 +5,6 @@ import { localizeDocument, LOCALE, tx } from "./i18n.js";
 import { lastAction } from "./jobs.js";
 import { actionText, canRestartWeb, conflictKeys, describe, destinationText, FILTER_TEXT, filterCounts, isTerminal, JOB_FILTERS, jobCategory, jobLabel, notSentText, preserveWebIdentity, pruneJobs,
   retryableKeys } from "./progress-model.js";
-// Kept for importers of the page module; the text logic itself lives in progress-model.js.
-export { actionText };
 
 export const PROGRESS_PAGE = "progress.html";
 
@@ -33,8 +31,8 @@ export function mountProgress(doc, deps) {
   let verifications = {}, archives = {};
   let filter = "all";
   let confirming = false;
-  // Answers the background never gave (no handler, closed port, no reply in time), per request key; the
-  // runner is the only writer of the stored jobs, so these stay on this page.
+  // Answers the background never gave (no handler, closed port, no reply in time) and refusals it did not
+  // store, per request key; the runner is the only writer of the stored jobs, so these stay on this page.
   const unanswered = new Map();
   let bulkNote = "";
   let checking = false;
@@ -47,6 +45,8 @@ export function mountProgress(doc, deps) {
     unanswered.delete(message.key);
     const reply = await ask(message);
     if (!reply || typeof reply.action !== "string") unanswered.set(message.key, lastAction(message.action, false, reply?.code === "not_found" ? "not_found" : "no_response", null, now()));
+    // A refusal the runner did not store on the job (web retry/cancel) is still shown on its row.
+    else if (reply.ok === false) unanswered.set(message.key, lastAction(reply.action, false, reply.code ?? null, reply.http_status ?? null, Number.isFinite(reply.at) ? reply.at : now()));
     render();
   };
 

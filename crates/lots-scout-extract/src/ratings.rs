@@ -357,42 +357,17 @@ fn json_scalar(value: &Value) -> Option<String> {
 
 /// The first schema.org `aggregateRating` in the page's JSON-LD.
 fn json_ld_rating(document: &dom_query::Document) -> Option<PageRating> {
-    for node in document
-        .select("script[type='application/ld+json']")
-        .nodes()
-        .iter()
-        .take(16)
-    {
-        let raw = node.text();
-        if raw.len() > 256 * 1024 {
-            continue;
+    let mut found = None;
+    crate::walk_json_ld(document, |node| {
+        let rating = &node["aggregateRating"];
+        if let Some(value) = json_scalar(&rating["ratingValue"]) {
+            let scale = json_scalar(&rating["bestRating"]);
+            let count = json_scalar(&rating["ratingCount"]).and_then(|c| c.parse().ok());
+            found = Some((value, scale, count));
         }
-        let Ok(value) = serde_json::from_str::<Value>(&raw) else {
-            continue;
-        };
-        let mut pending = vec![value];
-        let mut visited = 0;
-        while let Some(node) = pending.pop() {
-            visited += 1;
-            if visited > 64 {
-                break;
-            }
-            if let Some(nodes) = node.as_array() {
-                pending.extend(nodes.iter().take(64).cloned());
-                continue;
-            }
-            if let Some(nodes) = node["@graph"].as_array() {
-                pending.extend(nodes.iter().take(64).cloned());
-            }
-            let rating = &node["aggregateRating"];
-            if let Some(value) = json_scalar(&rating["ratingValue"]) {
-                let scale = json_scalar(&rating["bestRating"]);
-                let count = json_scalar(&rating["ratingCount"]).and_then(|c| c.parse().ok());
-                return Some((value, scale, count));
-            }
-        }
-    }
-    None
+        found.is_some()
+    });
+    found
 }
 
 #[cfg(test)]
@@ -591,5 +566,14 @@ mod tests {
         assert!(page_ratings("https://www.imdb.com/chart/top/", page, AT).is_empty());
         assert_eq!(page_item_type("https://www.imdb.com/title/tt0111161/reviews"), None);
         assert_eq!(page_item_type("https://example.com/"), None);
+    }
+
+    #[test]
+    fn the_first_aggregate_rating_in_document_order_wins() {
+        let page = r#"<script type="application/ld+json">{"@graph":[
+            {"@type":"Movie","aggregateRating":{"ratingValue":9.3,"bestRating":10}},
+            {"@type":"Movie","aggregateRating":{"ratingValue":4.1,"bestRating":10}}]}</script>"#;
+        let r = page_ratings("https://www.imdb.com/title/tt0111161/", page, AT);
+        assert_eq!(r[0].value, "9.3");
     }
 }

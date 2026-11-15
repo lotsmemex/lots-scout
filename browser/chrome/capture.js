@@ -141,9 +141,11 @@ export async function postJson(endpoint, secret, route, payload, fetchImpl = fet
   return body;
 }
 
-export async function discoverCapabilities(endpoint, secret, fetchImpl = fetch) {
+// A capabilities read that gets no answer in time counts as none, so it never holds a caller's queue.
+export const PROBE_TIMEOUT_MS = 5000;
+export async function discoverCapabilities(endpoint, secret, fetchImpl = fetch, { timeoutMs = PROBE_TIMEOUT_MS } = {}) {
   try {
-    const { features } = await postJson(endpoint, secret, "/api/v1/capabilities", {}, fetchImpl);
+    const { features } = await postJson(endpoint, secret, "/api/v1/capabilities", {}, fetchImpl, { timeoutMs });
     const has = (name) => Array.isArray(features) && features.includes(name);
     return { urlJobs: has("url-jobs-v1"), comments: has("comments-v1"), qualityCheck: has("quality-check-v1"), webSnapshot: has("web-snapshot-v1"),
       features: Array.isArray(features) ? features.filter((name) => typeof name === "string").slice(0, 64) : [] };

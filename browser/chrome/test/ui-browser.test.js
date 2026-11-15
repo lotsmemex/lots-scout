@@ -610,7 +610,7 @@ test("web fresh-capture action appears only after a zero-result owner audit and 
     await p.evaluate(`chrome.storage.local.set({webSnapshotArchives: {${JSON.stringify(job.request_key)}: ${JSON.stringify(archive)}}})`);
     await p.waitFor(`document.querySelector('#jobs').textContent.includes('已人工核定未入库，已另起')`);
     assert.deepEqual(await actions(), []);
-    assert.match(await p.evaluate(`document.querySelector('#jobs').textContent`), /结果未确认.*intake_422.*已人工核定未入库，已另起/s);
+    assert.match(await p.evaluate(`document.querySelector('#jobs').textContent`), /结果未确认.*HTTP 422.*已人工核定未入库，已另起/s);
     assert.deepEqual(await p.evaluate(`__mem.batchJobs`), [job]);
     await p.screenshot("refsniff-manual-restart-archived");
     await p.close();

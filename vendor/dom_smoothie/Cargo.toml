@@ -48,46 +48,6 @@ serde = ["dep:serde"]
 name = "dom_smoothie"
 path = "src/lib.rs"
 
-[[test]]
-name = "alt"
-path = "tests/alt.rs"
-
-[[test]]
-name = "bad"
-path = "tests/bad.rs"
-
-[[test]]
-name = "candidate_modes"
-path = "tests/candidate_modes.rs"
-
-[[test]]
-name = "common"
-path = "tests/common.rs"
-
-[[test]]
-name = "favicon"
-path = "tests/favicon.rs"
-
-[[test]]
-name = "metadata"
-path = "tests/metadata.rs"
-
-[[test]]
-name = "parse_policy"
-path = "tests/parse_policy.rs"
-
-[[test]]
-name = "readability"
-path = "tests/readability.rs"
-
-[[test]]
-name = "readability_ok"
-path = "tests/readability_ok.rs"
-
-[[test]]
-name = "wasm"
-path = "tests/wasm.rs"
-
 [dependencies.aho-corasick]
 version = "1.1.4"
 optional = true

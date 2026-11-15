@@ -8,7 +8,8 @@
 | --- | --- |
 | `browser/chrome/` | Chrome 扩展（Manifest V3），无需构建，没有依赖 |
 | `crates/lots-scout-types/` | 抓取输入与草稿输出的数据格式，只依赖 `serde` |
-| `crates/lots-scout-extract/` | 正文提取：通用网页、微信公众号文章、领研、Amp 播客，以及评论抽取 |
+| `crates/lots-scout-extract/` | 正文提取：通用网页、微信公众号文章、领研、Amp 播客，以及评论抽取；页面评分，以及查询评分和译名用的纯函数 |
+| `crates/lots-scout-mcp/` | 本机 MCP 服务和命令行，把公开的微信公众号文章读成 Markdown |
 | `sources/` | 每个信源一份清单和一份规则说明 |
 | `vendor/dom_smoothie/` | dom_smoothie 0.18.0（MIT），内置一份是为了让同分候选的排序固定 |
 
@@ -36,7 +37,7 @@ mkdir -p ~/.local/bin
 curl -L https://github.com/lotsmemex/lots-scout/releases/latest/download/lots-scout-mcp-macos-arm64.tar.gz | tar -xz -C ~/.local/bin
 ```
 
-预编译版本适用于 Apple 芯片的 Mac。其他系统请自行编译：`cargo install --git https://github.com/lotsmemex/lots-scout lots-scout-mcp`。
+预编译版本适用于 Apple 芯片的 Mac。其他系统请自行编译：`cargo install --locked --git https://github.com/lotsmemex/lots-scout lots-scout-mcp`。
 
 然后加到你用的 Agent 里：
 
@@ -57,18 +58,18 @@ cd browser/chrome && npm test && npm run package   # 生成 dist/lots-scout-chro
 
 ```toml
 [dependencies]
-lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.5" }
+lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.6" }
 
 # Cargo 不会把 patch 传给下游，需要在你的 workspace 里再写一次。
 [patch.crates-io]
-dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.5" }
+dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.6" }
 ```
 
 `lots_scout_extract::extract(&capture)` 会挑出能识别这份已校验抓取的提取器，返回一份 `ExtractedDraft`。
 
 ## 接口名
 
-扩展与资料库服务之间的抓取协议（`chrome_capture_v1`）由资料库服务 [Lots MemeX](https://github.com/lotsmemex/lotsmemex) 定义，接口名统一使用 `memex` 前缀：`application/vnd.memex.capture-v1` 请求体类型，`X-Memex-Intake-Secret`、`X-Memex-Intake-Nonce` 请求头，`memex:web-structure` 快照元信息和 `data-memex-snapshot` 属性，`memex.loopback-intake` 适配器标识，以及来源配置字段 `preferred_translator`。扩展的界面语言保存在 `memex.lang`，待发送的快照保存在 IndexedDB 存储 `memex-snapshots-v1`。
+扩展与资料库服务之间的抓取协议（`chrome_capture_v1`）由资料库服务 [Lots MemeX](https://github.com/lotsmemex/lotsmemex) 定义，接口名统一使用 `memex` 前缀：`application/vnd.memex.capture-v1` 请求体类型，`X-Memex-Intake-Secret`、`X-Memex-Intake-Nonce` 请求头，`memex:web-structure` 快照元信息和 `data-memex-snapshot` 属性，`memex.loopback-intake` 适配器标识，以及来源配置字段 `preferred_extractor`。扩展的界面语言保存在 `memex.lang`，待发送的快照保存在 IndexedDB 存储 `memex-snapshots-v1`。
 
 ## 许可证
 

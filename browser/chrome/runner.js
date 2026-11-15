@@ -1,15 +1,13 @@
 // The one writer of the persisted batch jobs. Runs in the service worker, so submitted jobs keep
 // going after the popup closes; pages and the popup only send it messages and render storage.
 // Pure (dependencies injected) so the same code runs in node tests and in the render harness.
-import { discoverCapabilities, NO_CAPABILITIES, SECRET_PATTERN, SETTING_KEYS, sha256Hex, validateEndpoint } from "./capture.js";
-import { act, advance, httpTransport, MAX_BATCH, newJob, persistable, prepareSend, removeFinished, unavailableTransport, willEnqueue } from "./jobs.js";
+import { discoverCapabilities, NO_CAPABILITIES, PROBE_TIMEOUT_MS, SECRET_PATTERN, SETTING_KEYS, sha256Hex, validateEndpoint } from "./capture.js";
+import { act, advance, httpTransport, MAX_BATCH, MAX_KEPT_JOBS, newJob, persistable, prepareSend, removeFinished, unavailableTransport, willEnqueue } from "./jobs.js";
 import { intakeBinding, webOrigin } from "./web-batch.js";
 import { validDestination } from "./destination.js";
 import { canRestartWeb, conflictKeys, isTerminal, preserveWebIdentity, pruneJobs, retryableKeys } from "./progress-model.js";
 import { savedEntryOf, savedIndexAdd } from "./saved-index.js";
 import { pendingSnapshot } from "./snapshot-queue.js";
-
-export const PROBE_TIMEOUT_MS = 5000;
 
 // Probes the configured intake. `ok` means the Mac answered the capabilities read with a non-5xx
 // HTTP status; which requests may be sent is then decided from `features` (a feature missing there is
@@ -26,11 +24,14 @@ export async function connectIntake(local, fetchImpl = globalThis.fetch, { timeo
     answered = response.status < 500;
     return response;
   };
-  const capabilities = await discoverCapabilities(endpoint, intakeSecret, probeFetch);
+  const capabilities = await discoverCapabilities(endpoint, intakeSecret, probeFetch, { timeoutMs });
   if (!answered) return { ok: false, reason: "unreachable", capabilities: NO_CAPABILITIES, transport: unavailableTransport() };
   return { ok: true, capabilities, intakeBinding: await intakeBinding({ endpoint, intakeSecret }),
     transport: capabilities.urlJobs || capabilities.webSnapshot ? httpTransport(endpoint, intakeSecret, fetchImpl, capabilities) : unavailableTransport() };
 }
+
+// Longest single wait before a retry_wait job is read back again.
+const MAX_WAIT_MS = 10 * 60 * 1000;
 
 export function createRunner({ local, connect, captureWeb, pending = pendingSnapshot, now = () => Date.now(), schedule = (fn, ms) => setTimeout(fn, ms) }) {
   let chain = Promise.resolve();
@@ -65,8 +66,8 @@ export function createRunner({ local, connect, captureWeb, pending = pendingSnap
   // so dropping job records (clear done, remove) never forgets them.
   const save = async (jobs) => {
     const archived = await archives(), retained = retainedKeys(archived);
-    if (jobs.length > 200 && jobs.slice(0, jobs.length - 200).some(j => retained.has(j.request_key) || preserveWebIdentity(j))) throw new Error("batch_storage_full");
-    const kept = jobs.slice(-200);
+    if (jobs.length > MAX_KEPT_JOBS && jobs.slice(0, jobs.length - MAX_KEPT_JOBS).some(j => retained.has(j.request_key) || preserveWebIdentity(j))) throw new Error("batch_storage_full");
+    const kept = jobs.slice(-MAX_KEPT_JOBS);
     const records = persistable(kept).map((j, index) => archived[j.request_key]?.original_job || (preserveWebIdentity(kept[index]) ? kept[index] : j));
     const entries = jobs.map(savedEntryOf).filter(Boolean);
     if (!entries.length) return local.set({ batchJobs: records });
@@ -84,7 +85,7 @@ export function createRunner({ local, connect, captureWeb, pending = pendingSnap
     }
     const { webSnapshotVerifications = {} } = await local.get("webSnapshotVerifications");
     const verification = webSnapshotVerifications[job.request_key];
-    if (!canRestartWeb(job, verification) || list.length >= 200) return { action: "retry", ok: false, code: "not_allowed_locally" };
+    if (!canRestartWeb(job, verification) || list.length >= MAX_KEPT_JOBS) return { action: "retry", ok: false, code: "not_allowed_locally" };
     const binding = await intakeBinding(await local.get(SETTING_KEYS));
     const request = await pending("get", job.request_key);
     if (binding !== job.want.intake_binding || request?.binding !== binding || !request?.body) return { action: "retry", ok: false, code: "intake_changed" };
@@ -104,18 +105,26 @@ export function createRunner({ local, connect, captureWeb, pending = pendingSnap
   // "unconfirmed" (refused after a lost receipt) waits for the user's explicit re-check.
   const runnable = (job, transport) => job.want?.web_snapshot ? Boolean(captureWeb) && job.state === "pending"
     : !isTerminal(job) && job.state !== "unconfirmed" && (willEnqueue(job, transport) || Boolean(job.job_id && job.state !== "pending" && job.state !== "unknown"));
-  const step = async (key, transport) => {
+  // A read-back that only refreshed updated_at is not written, so polling does not rewrite storage.
+  const sameExceptTime = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])]
+    .every((k) => k === "updated_at" || JSON.stringify(a[k]) === JSON.stringify(b[k]));
+  // `conn` is the caller's connect() result: its capabilities spare the web capture a second probe.
+  // Returns true when a visible browser visit ran.
+  const step = async (key, transport, conn) => {
     const job = (await load()).find((candidate) => candidate.request_key === key);
-    if (!job) return;
+    if (!job) return false;
     if (job.want?.web_snapshot) {
-      if ((await archives())[key]) return;
-      if (captureWeb && !isTerminal(job)) await put(await captureWeb(job, put));
-      return;
+      if ((await archives())[key]) return false;
+      if (!captureWeb || isTerminal(job)) return false;
+      await put(await captureWeb(job, put, conn));
+      return true;
     }
     // The send count is saved before the request leaves, so an interrupted first send is not taken for one later.
     const ready = prepareSend(job, transport);
     if (ready !== job) await put(ready);
-    await put(await advance(ready, transport, now()));
+    const next = await advance(ready, transport, now());
+    if (!sameExceptTime(next, ready)) await put(next);
+    return false;
   };
   // connect() plus why the Mac cannot be asked now: unreachable / not set up / no url-jobs feature.
   const reach = async () => {
@@ -125,23 +134,27 @@ export function createRunner({ local, connect, captureWeb, pending = pendingSnap
       : conn.transport?.ready !== true ? "feature_missing" : null;
     return { transport: conn.transport, unready };
   };
+  // needs_user waits for the user (retry/cancel/recheck); retry_wait is not read back before the Mac's retry time.
+  const due = (job) => job.state !== "needs_user" && !(job.state === "retry_wait" && Number.isFinite(job.retry_at_ms) && job.retry_at_ms > now());
   const later = (ms) => { if (!timer) timer = schedule(() => { timer = null; kick(); }, ms); };
   const kick = () => serial(async () => {
-    const { ok, transport } = await connect();
+    const conn = await connect();
+    const { ok, transport } = conn;
     // Mac away (starting up, unreachable, not set up): touch no job, so an unknown job keeps its state,
     // key and payload and nothing is marked failed; try the connection again more slowly.
     if (!ok) {
       if ((await load()).some((job) => !isTerminal(job) && job.state !== "unconfirmed")) later(15000);
       return;
     }
-    for (const job of (await load()).filter((candidate) => runnable(candidate, transport))) {
-      await step(job.request_key, transport);
-      // Yield between visible browser visits so cancel and recheck can run.
-      if (job.want?.web_snapshot) break;
+    for (const job of (await load()).filter((candidate) => runnable(candidate, transport) && due(candidate))) {
+      // Yield between visible browser visits so cancel and recheck can run, then go on at once.
+      if (await step(job.request_key, transport, conn)) { later(0); return; }
     }
     // Read back unfinished jobs every few seconds (jittered). Features the Mac lacks are not polled for:
-    // the pages re-read them on focus and kick again.
-    if ((await load()).some((job) => runnable(job, transport))) later(3000 + Math.random() * 3000);
+    // the pages re-read them on focus and kick again. A job waiting for its retry time is read back then.
+    const left = (await load()).filter((job) => runnable(job, transport) && job.state !== "needs_user");
+    if (left.some(due)) later(3000 + Math.random() * 3000);
+    else if (left.length) later(Math.min(MAX_WAIT_MS, Math.max(3000, Math.min(...left.map((job) => job.retry_at_ms)) - now())));
   });
 
   // Answers the caller as soon as its own step is done; the follow-up read-back runs after it.
@@ -175,12 +188,12 @@ export function createRunner({ local, connect, captureWeb, pending = pendingSnap
         keys.push(job.request_key);
       }
       // Never evict an unfinished/unknown identity to make room for a batch.
-      if (list.length > 200 && list.slice(0, list.length - 200).some((j) => !isTerminal(j))) throw new Error("batch_storage_full");
+      if (list.length > MAX_KEPT_JOBS && list.slice(0, list.length - MAX_KEPT_JOBS).some((j) => !isTerminal(j))) throw new Error("batch_storage_full");
       await save(list);
       return keys;
     }).then((keys) => { kick(); return keys; }),
     // Explicit re-check: replays the original key and payload once.
-    recheck: (key) => serial(async () => { const { transport } = await connect(); await step(key, transport); }).then(() => kick()),
+    recheck: (key) => serial(async () => { const conn = await connect(); await step(key, conn.transport, conn); }).then(() => kick()),
     // Explicit re-check of every identity-conflict job, one at a time: each replays its original key and
     // payload once, exactly like the single "再次核对". Nothing else is touched.
     recheckConflicts: () => thenKick(serial(async () => {

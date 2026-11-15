@@ -79,7 +79,10 @@ impl LinkresearcherArticleExtractor {
     /// Used by admission too. These are fields displayed by the site's public
     /// article component, not its abstract, recommendation list or comments.
     pub fn article_html(capture: &VerifiedCapture) -> Result<String> {
-        let article = Self::article(capture)?;
+        Self::body_html(&Self::article(capture)?)
+    }
+
+    fn body_html(article: &Article) -> Result<String> {
         let body = non_empty(article.whole_html_content.as_deref())
             .or_else(|| non_empty(article.content.as_deref()))
             .context("Linkresearcher response contains no article body")?;
@@ -97,7 +100,7 @@ impl Extractor for LinkresearcherArticleExtractor {
     }
     fn extract(&self, capture: &VerifiedCapture) -> Result<ExtractedDraft> {
         let article = Self::article(capture)?;
-        let html = Self::article_html(capture)?;
+        let html = Self::body_html(&article)?;
         let document = Document::from(html.as_str());
         verify_dom_depth(&document)?;
         comments::remove_comments(&document);

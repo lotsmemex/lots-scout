@@ -1,9 +1,11 @@
 [package]
 name = "lots-scout-extract"
-version = "0.2.5"
+version = "0.2.6"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
+description = "Lots Scout extractors: web pages, WeChat articles and podcasts to Markdown drafts"
 
 [dependencies]
 ammonia = "4.1.4"

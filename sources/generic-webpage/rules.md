@@ -6,7 +6,7 @@
 - version: `2`
 - family: generic webpage/article fallback
 - input: checksum-verified `VerifiedCapture`
-- output: `ItemDraft`；stable ID、EvidenceLink 与 Markdown 由 store 生成
+- output: `ExtractedDraft`; the store assigns stable IDs and evidence links and renders the item file
 
 ## Recognize
 
@@ -38,20 +38,15 @@ ambiguous and fail closed.
 5. **Sensitivity**
    - Store takes the stricter value of SourceProfile and CaptureEnvelope.
 
+Output variants: `2` is the base; `2-comments-v1` appends a separately extracted comment section;
+`3-web-structure-v1` is the structured path for `1-web-snapshot-v1` browser snapshots (headings,
+tables, code, figures and references).
+
 ## Emit Markdown
 
-```markdown
----
-item_id: <item_id>
-revision_id: <revision_id>
-title: <escaped-title>
----
-
-# <title>
-
-<content_markdown>
-
-```
+The extractor emits only `content_markdown`: canonical Markdown with one trailing newline and no
+front matter. The store adds the item front matter (`item_id`, `revision_id`, title) when it writes
+the item.
 
 ## Guardrails
 

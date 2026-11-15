@@ -67,7 +67,8 @@ export async function renderWebPage(api, url, { timeoutMs = 25000, wait = (ms) =
 }
 
 export function createWebCapture({ api, local, pending = pendingSnapshot, render = (url) => renderWebPage(api, url), post = postCapture, capabilities = discoverCapabilities, now = () => Date.now() }) {
-  return async (job, save) => {
+  // `probed` is the runner's connect() result; its capabilities are reused only for the same intake.
+  return async (job, save, probed = null) => {
     const stop = (reason, uncertain = false) => ({ ...job, state: uncertain ? "unconfirmed" : "needs_user", reason,
       can_retry: !uncertain && !["web_redirected", "page_changed", "unsafe_web_url", "interactive_login_required"].includes(reason), can_cancel: false, updated_at: now() });
     const settings = await local.get(SETTING_KEYS);
@@ -79,7 +80,8 @@ export function createWebCapture({ api, local, pending = pendingSnapshot, render
     let request = await pending("get", job.request_key);
     if (request && request.binding !== binding) return stop("intake_changed", true);
     if (!request && job.sends) return stop("snapshot_missing", true);
-    if (!(await capabilities(settings.endpoint, settings.intakeSecret)).webSnapshot) return stop("web_feature_missing", Boolean(job.sends));
+    const features = probed?.ok && probed.intakeBinding === binding ? probed.capabilities : await capabilities(settings.endpoint, settings.intakeSecret);
+    if (!features?.webSnapshot) return stop("web_feature_missing", Boolean(job.sends));
     if (!request) {
       // A worker interrupted during rendering leaves a visible, non-runnable
       // needs_user state. Only an explicit retry may open another browser tab.

@@ -2,7 +2,7 @@
 // runs in node tests and in the synthetic render harness.
 import { postJson, randomBase64Url } from "./capture.js";
 import { isPodcastEpisode, isSafeJob, isTerminal } from "./progress-model.js";
-import { ACTIVE_GROUP_FEATURE, ACTIVE_GROUP_ROUTE, DESTINATION_FEATURE, destinationFields, GROUP_PICKER_FEATURE, groupTree, GROUPS_ROUTE, placementOf, PLACEMENTS,
+import { ACTIVE_GROUP_FEATURE, ACTIVE_GROUP_ROUTE, DESTINATION_FEATURE, destinationFields, GROUP_PICKER_FEATURE, groupTree, GROUPS_ROUTE, isGroupId, placementOf, PLACEMENTS,
   resolveActiveGroup, validDestination } from "./destination.js";
 
 export const MAX_BATCH = 200;
@@ -36,10 +36,9 @@ export const PODCAST_FEATURES = Object.freeze(["url-jobs-v1", "url-jobs-no-gener
 
 // 1.3.x jobs carry an explicit target/remove placement and no destination_mode; they are only ever
 // replayed with their original payload (never created by the current UI).
-const GROUP_ID = /^group_[A-Za-z0-9_]{1,122}$/;
 const MAX_REMOVE_GROUPS = 2;
-const validPlacement = (want) => GROUP_ID.test(want?.target_group_id || "") && Array.isArray(want.remove_from_group_ids) &&
-  want.remove_from_group_ids.length <= MAX_REMOVE_GROUPS && want.remove_from_group_ids.every((id) => GROUP_ID.test(id)) &&
+const validPlacement = (want) => isGroupId(want?.target_group_id) && Array.isArray(want.remove_from_group_ids) &&
+  want.remove_from_group_ids.length <= MAX_REMOVE_GROUPS && want.remove_from_group_ids.every(isGroupId) &&
   !want.remove_from_group_ids.includes(want.target_group_id);
 
 export const missingFeatures = (capabilities, names) =>
@@ -280,10 +279,10 @@ export function unavailableTransport() {
 
 // `podcast` is true only when the same intake's capabilities carried every PODCAST_FEATURES entry.
 export function httpTransport(endpoint, secret, fetchImpl = fetch, capabilities = null, { timeoutMs = ACT_TIMEOUT_MS } = {}) {
-  // Enqueue keeps no client timeout (its unknown-outcome handling is unchanged); status/retry/cancel are bounded.
+  // Enqueue keeps no client timeout (its unknown-outcome handling is unchanged); folder reads and status/retry/cancel are bounded.
   const call = (route, bounded = false) => (input) => postJson(endpoint, secret, `/api/v1/url-jobs/${route}`, input, fetchImpl, bounded ? { timeoutMs } : {});
   // `podcast`: legacy 1.3.x replay gate; `destination`: destination_mode requests (podcast episodes).
   return { ready: true, podcast: podcastGate(capabilities).open, destination: podcastMissing(capabilities, "inbox").length === 0,
-    activeGroup: () => postJson(endpoint, secret, ACTIVE_GROUP_ROUTE, {}, fetchImpl),
-    groups: () => postJson(endpoint, secret, GROUPS_ROUTE, {}, fetchImpl), enqueue: call("enqueue"), status: call("status", true), retry: call("retry", true), cancel: call("cancel", true) };
+    activeGroup: () => postJson(endpoint, secret, ACTIVE_GROUP_ROUTE, {}, fetchImpl, { timeoutMs }),
+    groups: () => postJson(endpoint, secret, GROUPS_ROUTE, {}, fetchImpl, { timeoutMs }), enqueue: call("enqueue"), status: call("status", true), retry: call("retry", true), cancel: call("cancel", true) };
 }

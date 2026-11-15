@@ -95,7 +95,7 @@ pub(crate) fn localize_images(html: &str, source_url: &str, blobs: &[VerifiedBlo
     Ok((markdown, attachments))
 }
 
-fn web_url(base: &Url, value: &str) -> Option<String> {
+pub(crate) fn web_url(base: &Url, value: &str) -> Option<String> {
     let url = base.join(value.trim()).ok()?;
     (value.len() <= 4096 && matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
         && url.username().is_empty() && url.password().is_none()).then(|| url.to_string())
@@ -127,22 +127,12 @@ fn metadata(document: &Document, base: &Url) -> WebMetadata {
         site_name: meta("meta[property='og:site_name']"),
     };
     let mut articles = Vec::new();
-    for node in document.select("script[type='application/ld+json']").nodes().iter().take(16) {
-        let raw = node.text();
-        if raw.len() > 256 * 1024 { continue; }
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
-            let mut pending = vec![value];
-            let mut visited = 0;
-            while let Some(node) = pending.pop() {
-                visited += 1;
-                if visited > 64 { break; }
-                if let Some(nodes) = node.as_array() { pending.extend(nodes.iter().take(64).cloned()); continue; }
-                if let Some(nodes) = node["@graph"].as_array() { pending.extend(nodes.iter().take(64).cloned()); }
-                let kind = node["@type"].as_str().unwrap_or("");
-                if matches!(kind, "Article" | "BlogPosting" | "NewsArticle" | "TechArticle" | "PodcastEpisode") { articles.push(node); }
-            }
-        }
-    }
+    walk_json_ld(document, |node| {
+        let article = |kind: &serde_json::Value| matches!(kind.as_str(), Some("Article" | "BlogPosting" | "NewsArticle" | "TechArticle" | "PodcastEpisode"));
+        let kind = &node["@type"];
+        if article(kind) || kind.as_array().is_some_and(|kinds| kinds.iter().any(article)) { articles.push(node.clone()); }
+        false
+    });
     let page = web_page_identity(base.as_str()).ok();
     let bound = articles.iter().find(|node| [node["url"].as_str(), node["mainEntityOfPage"].as_str(), node["mainEntityOfPage"]["@id"].as_str(), node["@id"].as_str()]
         .into_iter().flatten().any(|value| web_url(base, value).and_then(|url| web_page_identity(&url).ok()) == page))
@@ -163,6 +153,11 @@ fn metadata(document: &Document, base: &Url) -> WebMetadata {
 
 /// Reads supplied HTML only. No fetching, JavaScript, expansion, pagination or credential access.
 pub fn extract_webpage(source_url: &str, html: &str) -> Result<WebExtraction> {
+    extract_webpage_with_comments(source_url, html).map(|(extracted, _)| extracted)
+}
+
+/// Like [`extract_webpage`], also reporting whether comment containers were removed.
+pub(crate) fn extract_webpage_with_comments(source_url: &str, html: &str) -> Result<(WebExtraction, bool)> {
     anyhow::ensure!(html.len() <= MAX_HTML_BYTES, "webpage_size_limit");
     let base = Url::parse(source_url)?;
     anyhow::ensure!(web_url(&base, source_url).is_some(), "invalid_web_url");
@@ -174,7 +169,7 @@ pub fn extract_webpage(source_url: &str, html: &str) -> Result<WebExtraction> {
         .filter(|value| value.len() <= 256 * 1024)
         .and_then(|value| serde_json::from_str::<serde_json::Value>(&value).ok())
         .filter(|value| value["schema_version"] == 1);
-    comments::remove_comments(&document);
+    let comments_removed = comments::remove_comments(&document);
     for node in document.select("script,style,noscript,form,input,textarea,select,button,iframe,object,embed,[contenteditable]").nodes() { node.remove_from_parent(); }
     let mut candidates = Vec::new();
     for selector in ["article,[role=article]", "[itemprop=articleBody],.prose,.entry-content,.post-content", "main,[role=main]"] {
@@ -197,7 +192,7 @@ pub fn extract_webpage(source_url: &str, html: &str) -> Result<WebExtraction> {
         id: n.attr("id").map(|v| clean(&v)).filter(|s| !s.is_empty()), text: clean(&n.text()),
     }).collect();
     let tables = body.select("table,[role=grid]").nodes().iter().take(64).map(|node| {
-        let table = Document::from(node.html().as_ref());
+        let table = dom_query::Selection::from(*node);
         let rows = table.select("tr,[role=row]");
         let columns = rows.nodes().iter().map(|r| dom_query::Selection::from(*r).select("th,td,[role=gridcell],[role=columnheader],[role=rowheader]").length()).max().unwrap_or(0);
         WebTable { rows: rows.length(), columns, partial: node.attr("role").is_some_and(|v| v.as_ref() == "grid") || node.attr("aria-rowcount").and_then(|v| v.parse::<usize>().ok()).is_some_and(|n| n > rows.length()),
@@ -220,6 +215,8 @@ pub fn extract_webpage(source_url: &str, html: &str) -> Result<WebExtraction> {
         grid.replace_with_html(table);
     }
     let mut references: Vec<WebReference> = Vec::new();
+    let mut reference_index: HashMap<String, usize> = HashMap::new();
+    let page_identity = web_page_identity(source_url)?;
     let mut heading = None;
     let mut learn_more = false;
     for (doc, related) in [(&body, false), (&document, true)] {
@@ -231,18 +228,20 @@ pub fn extract_webpage(source_url: &str, html: &str) -> Result<WebExtraction> {
             }
             let Some(href) = node.attr("href").and_then(|v| web_url(&base, &v)) else { continue; };
             let identity = web_page_identity(&href)?;
-            if identity == web_page_identity(source_url)? { continue; }
+            if identity == page_identity { continue; }
             let occurrence = WebOccurrence { href, text: clean(&node.text()), role: if related { "related" } else if learn_more { "learn_more" } else { "citation" }.into(), heading: if related { None } else { heading.clone() } };
-            if let Some(reference) = references.iter_mut().find(|r| r.url == identity) { reference.occurrences.push(occurrence); }
-            else if references.len() < 600 { references.push(WebReference { url: identity, occurrences: vec![occurrence] }); }
+            if let Some(&index) = reference_index.get(&identity) { references[index].occurrences.push(occurrence); }
+            else if references.len() < 600 {
+                reference_index.insert(identity.clone(), references.len());
+                references.push(WebReference { url: identity, occurrences: vec![occurrence] });
+            }
         }
     }
     let mut media = Vec::new();
     for video in body.select("video").nodes().iter().take(16) {
-        let video_doc = Document::from(video.html().as_ref());
-        let Some(url) = video.attr("src").or_else(|| video_doc.select("source[src]").attr("src")).and_then(|v| web_url(&base, &v)) else { continue; };
+        let Some(url) = video.attr("src").or_else(|| dom_query::Selection::from(*video).select("source[src]").attr("src")).and_then(|v| web_url(&base, &v)) else { continue; };
         let figure = video.ancestors_it(None).find(|n| n.node_name().is_some_and(|name| name.as_ref() == "figure"));
-        let caption = figure.map(|f| Document::from(f.html().as_ref()).select("figcaption").text().to_string())
+        let caption = figure.map(|f| dom_query::Selection::from(f).select("figcaption").text().to_string())
             .filter(|s| !s.trim().is_empty()).or_else(|| video.attr("aria-label").map(|v| v.to_string())).unwrap_or_else(|| "Video".into());
         let poster = video.attr("poster").and_then(|v| web_url(&base, &v));
         let mut target = base.clone();
@@ -259,7 +258,7 @@ pub fn extract_webpage(source_url: &str, html: &str) -> Result<WebExtraction> {
         let mut language = class.as_deref().and_then(|classes| classes.split_whitespace().find_map(|c| c.strip_prefix("language-"))).map(str::to_owned);
         if language.is_none() {
             if let Some(container) = pre.ancestors_it(None).find(|n| n.has_class("art-code")) {
-                language = Some(Document::from(container.html().as_ref()).select(".lang").text().trim().to_ascii_lowercase());
+                language = Some(dom_query::Selection::from(container).select(".lang").text().trim().to_ascii_lowercase());
             }
         }
         let language = language.filter(|s| !s.is_empty() && s.len() <= 32 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"_+.-".contains(&b)));
@@ -273,7 +272,7 @@ pub fn extract_webpage(source_url: &str, html: &str) -> Result<WebExtraction> {
     sanitizer.url_relative(UrlRelative::RewriteWithBase(base));
     let safe_html = sanitizer.clean(&body.html()).to_string();
     let markdown = canonical_markdown(HtmlToMarkdown::new().convert(&safe_html)?)?;
-    Ok(WebExtraction { schema_version: 1, source_url: source_url.into(), title, metadata, headings, media, tables, references, snapshot_structure, markdown, html: safe_html })
+    Ok((WebExtraction { schema_version: 1, source_url: source_url.into(), title, metadata, headings, media, tables, references, snapshot_structure, markdown, html: safe_html }, comments_removed))
 }
 
 #[cfg(test)]
@@ -303,6 +302,14 @@ mod tests {
         assert!(!result.markdown.contains("FOOTER_SENTINEL"));
         assert!(!result.html.contains("<video"));
         assert_ne!(web_page_identity("https://www.example.test/A/?a=1").unwrap(), web_page_identity("http://example.test/A?a=1").unwrap());
+    }
+
+    #[test]
+    fn json_ld_type_arrays_bind_article_metadata() {
+        let html = format!(r#"<script type="application/ld+json">{{"@type":["Article","WebPage"],"datePublished":"2026-01-02"}}</script>
+          <article><p>{}</p></article>"#, "Readable prose. ".repeat(20));
+        let result = extract_webpage("https://example.test/article", &html).unwrap();
+        assert_eq!(result.metadata.published_raw.as_deref(), Some("2026-01-02"));
     }
 
     #[test]

@@ -18,6 +18,9 @@ const CAPTURE_ERROR = {
   unknown_capture: tx('结果尚未确认；再次点击将核对原请求，不会重新抓取'),
   web_identity_protected: tx('保留原网页请求；请在进度页核定，普通收录不能另起抓取'),
   intake_409: tx('原请求或已收录正文存在冲突；保留原文，不覆盖'),
+  intake_401: tx('连接密钥不对；请在设置里重新填写 Mac 上的连接密钥'),
+  intake_403: tx('Mac 收录服务拒绝了这个扩展；请在 Mac 端重新配对后再试'),
+  failed: tx('收录失败，请稍后再试'),
   no_article: tx('没找到可收录的正文')
 };
 const STATUS_TEXT = { done: tx('已收录'), busy: tx('处理中'), retry: tx('上次失败 · 可重试') };
@@ -496,26 +499,32 @@ export async function mountPanel(doc, deps) {
     const s = single();
     if (working || !s.ok) return;
     working = true;
-    if (s.plan) {
-      deps.openProgress?.();
+    try {
+      if (s.plan) {
+        deps.openProgress?.();
+        update();
+        let keys;
+        try { keys = await handOver([{ url: pageUrl, want: s.plan.want, page: pageUrl, title: deps.page?.title || null }]); }
+        catch { /* A missing reply is not successful queue acceptance. */ }
+        if (!Array.isArray(keys) || !keys.length) { say(tx('后台未确认接收；请查看进度后再核对，不要更换目标重复提交'), true); return; }
+        pageSent = true;
+        for (const c of candidates) if (c.url === pageUrl) { c.checked = false; c.status = "busy"; }
+        const d = s.plan.want.destination;
+        say(d.mode === "inbox" ? tx('已交给 Mac：这一集收进 Inbox') : tx('已交给 Mac：这一集放入 {0}', pathText(d.path)));
+        $("change-dest").hidden = false;
+      } else {
+        update();
+        say(tx('正在收录本页…'));
+        const result = await deps.captureTab(s.destination);
+        if (result?.ok) pageSent = true;
+        const success = s.destination?.mode === "group" ? tx('已放入 {0}', pathText(s.destination.path)) : tx('已收进 Inbox');
+        say(result?.ok ? success + (result.missingImages ? tx('；{0} 张图片未取得本地证据，保留原链接', result.missingImages) : "")
+          : (CAPTURE_ERROR[result?.code] || tx('收录失败（{0}）', result?.code || "unknown")), !result?.ok);
+      }
+    } finally {
+      working = false;
       update();
-      await handOver([{ url: pageUrl, want: s.plan.want, page: pageUrl, title: deps.page?.title || null }]);
-      pageSent = true;
-      for (const c of candidates) if (c.url === pageUrl) { c.checked = false; c.status = "busy"; }
-      const d = s.plan.want.destination;
-      say(d.mode === "inbox" ? tx('已交给 Mac：这一集收进 Inbox') : tx('已交给 Mac：这一集放入 {0}', pathText(d.path)));
-      $("change-dest").hidden = false;
-    } else {
-      update();
-      say(tx('正在收录本页…'));
-      const result = await deps.captureTab(s.destination);
-      if (result?.ok) pageSent = true;
-      const success = s.destination?.mode === "group" ? tx('已放入 {0}', pathText(s.destination.path)) : tx('已收进 Inbox');
-      say(result?.ok ? success + (result.missingImages ? tx('；{0} 张图片未取得本地证据，保留原链接', result.missingImages) : "")
-        : (CAPTURE_ERROR[result?.code] || tx('收录失败（{0}）', result?.code || "unknown")), !result?.ok);
     }
-    working = false;
-    update();
   });
 
   showView(); renderCandidates(); update();

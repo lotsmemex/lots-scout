@@ -7,7 +7,7 @@
 - family: WeChat Official Account public article
 - input: one checksum-verified UTF-8 HTML artifact plus every referenced captured image artifact;
   the article source is an exact `https://mp.weixin.qq.com/s/...` URL
-- output: `ItemDraft`; Store remains the sole Item/Evidence/receipt owner
+- output: `ExtractedDraft`; Store remains the sole Item/Evidence/receipt owner
 
 ## Extract steps
 
@@ -24,7 +24,7 @@
 6. Prefer non-empty lazy image `data-src`, resolve it against the article URL and require an exact
    captured image occurrence. Rewrite it to the deterministic item-relative
    `attachments/sha256-<digest>.<ext>` path and emit a `DraftAttachmentRef::Captured` containing the
-   verified blob occurrence index and blob id, never a extractor-selected filesystem path.
+   verified blob occurrence index and blob id, never an extractor-selected filesystem path.
 7. Convert body H1 to H2 so the Store-rendered item title remains the only H1. Promote a short,
    block-wide `一、...`/numeric section marker to H2 and `（一）...`/multi-level numeric marker to
    H3. Promotion requires at least 85% block coverage and at most 64 non-whitespace characters.
@@ -32,6 +32,8 @@
    emphasis. Remove emphasis from headings and from decorative candidates over 80 non-whitespace
    characters that cover at least 85% of their nearest text block. Collapse nested emphasis.
 9. Sanitize to HTTP(S)-only content and convert deterministically to Markdown.
+
+Output variants: `3` is the base; `3-comments-v1` appends a separately extracted comment section.
 
 ## Guardrails
 

@@ -7,6 +7,7 @@ import { collectPageLinks } from "./sniff.js";
 import { collectImageEvidence } from "./image-capture.js";
 import { pendingSnapshot } from "./snapshot-queue.js";
 import { createWebCapture, intakeBinding } from "./web-batch.js";
+import { validDestination } from "./destination.js";
 
 const MENU_LINK = "scout-capture-link";
 const MENU_SNIFF_PAGE = "scout-sniff-page";
@@ -36,7 +37,7 @@ async function captureTab(tabId, destination = { mode: "inbox" }) {
     // New manifest fields are sent only to an intake that advertises them.
     const capabilities = await discoverCapabilities(settings.endpoint, settings.intakeSecret);
     const webSnapshot = capabilities.webSnapshot === true && new URL(tab.url).hostname !== "mp.weixin.qq.com";
-    if (destination?.mode !== "inbox" && (destination?.mode !== "group" || !/^group_[A-Za-z0-9_]{1,122}$/.test(destination.group_id) || !webSnapshot)) throw new Error("web_feature_missing");
+    if (!validDestination(destination) || (destination.mode !== "inbox" && !webSnapshot)) throw new Error("web_feature_missing");
     const capture = async () => {
       const includeComments = !webSnapshot && capabilities.comments && settings.defaultComments === true;
       const key = await sha256Hex(new TextEncoder().encode(JSON.stringify([

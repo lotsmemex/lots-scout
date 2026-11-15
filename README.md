@@ -10,7 +10,8 @@ Its Chinese name is 元芳.
 | --- | --- |
 | `browser/chrome/` | The Chrome extension (Manifest V3). No build step, no dependencies. |
 | `crates/lots-scout-types/` | Capture input and draft output types. Depends only on `serde`. |
-| `crates/lots-scout-extract/` | Extractors: generic web page, WeChat article, Linkresearcher, Amp podcast, comment extraction. |
+| `crates/lots-scout-extract/` | Extractors: generic web page, WeChat article, Linkresearcher, Amp podcast, comment extraction; page ratings and pure helpers for rating and title lookups. |
+| `crates/lots-scout-mcp/` | Local MCP server and CLI that read public WeChat articles into Markdown. |
 | `sources/` | One manifest and one prose description of the rules per source. |
 | `vendor/dom_smoothie/` | dom_smoothie 0.18.0 (MIT), vendored to make equal-score candidate ordering deterministic. |
 
@@ -42,7 +43,7 @@ mkdir -p ~/.local/bin
 curl -L https://github.com/lotsmemex/lots-scout/releases/latest/download/lots-scout-mcp-macos-arm64.tar.gz | tar -xz -C ~/.local/bin
 ```
 
-Prebuilt for Apple Silicon Macs. On other systems, build it: `cargo install --git https://github.com/lotsmemex/lots-scout lots-scout-mcp`.
+Prebuilt for Apple Silicon Macs. On other systems, build it: `cargo install --locked --git https://github.com/lotsmemex/lots-scout lots-scout-mcp`.
 
 Then add it to your agent:
 
@@ -63,11 +64,11 @@ cd browser/chrome && npm test && npm run package   # writes dist/lots-scout-chro
 
 ```toml
 [dependencies]
-lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.5" }
+lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.6" }
 
 # Cargo does not pass patches on to dependents; repeat this one in your workspace.
 [patch.crates-io]
-dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.5" }
+dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.6" }
 ```
 
 `lots_scout_extract::extract(&capture)` picks the extractor that recognizes a verified
@@ -77,7 +78,7 @@ capture and returns an `ExtractedDraft`.
 
 The capture protocol between the extension and a library service (`chrome_capture_v1`) is
 defined by the library service, [Lots MemeX](https://github.com/lotsmemex/lotsmemex). Its wire
-names use the `memex` prefix: the `application/vnd.memex.capture-v1` body type, the `X-Memex-Intake-Secret` and `X-Memex-Intake-Nonce` headers, the `memex:web-structure` snapshot meta and `data-memex-snapshot` attribute, the `memex.loopback-intake` adapter id and the `preferred_translator` source-profile field. The extension also keeps its UI language in `memex.lang`
+names use the `memex` prefix: the `application/vnd.memex.capture-v1` body type, the `X-Memex-Intake-Secret` and `X-Memex-Intake-Nonce` headers, the `memex:web-structure` snapshot meta and `data-memex-snapshot` attribute, the `memex.loopback-intake` adapter id and the `preferred_extractor` source-profile field. The extension also keeps its UI language in `memex.lang`
 and pending snapshots in the `memex-snapshots-v1` IndexedDB store.
 
 ## License

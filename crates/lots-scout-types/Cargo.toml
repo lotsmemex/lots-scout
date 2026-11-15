@@ -1,9 +1,11 @@
 [package]
 name = "lots-scout-types"
-version = "0.2.5"
+version = "0.2.6"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+publish = false
+description = "Capture input and draft output types for Lots Scout extractors"
 
 [dependencies]
 serde.workspace = true

@@ -211,6 +211,6 @@ pub struct ExtractedDraft {
     pub extractor_version: String,
     pub attachments: Vec<DraftAttachmentRef>,
     /// Ratings shown on the captured page itself, such as a Douban score.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub ratings: Vec<Rating>,
 }

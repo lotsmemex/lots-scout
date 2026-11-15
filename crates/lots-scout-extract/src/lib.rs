@@ -14,7 +14,7 @@ use lots_scout_types::{
     VerifiedCapture,
 };
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use url::Url;
 
 mod comments;
@@ -69,9 +69,8 @@ pub fn podcast_video_id(html: &str) -> Result<Option<String>> {
     // episode content region can provide its cover identity.
     let region = if document.select("main").length() > 0 { "main" } else { "article" };
     anyhow::ensure!(document.select(region).length() == 1, "podcast_video_scope_invalid");
-    let scoped = Document::from(document.select(region).html().as_ref());
     let mut ids = BTreeSet::new();
-    for node in scoped.select("iframe[src], a[href], meta[property='og:video'], meta[property='og:video:url']").nodes() {
+    for node in document.select(region).select("iframe[src], a[href], meta[property='og:video'], meta[property='og:video:url']").nodes() {
         let raw = node.attr("src").or_else(|| node.attr("href")).or_else(|| node.attr("content"));
         let Some(raw) = raw else { continue };
         let Ok(url) = Url::parse(&raw) else { continue };
@@ -143,6 +142,49 @@ fn css_value<'a>(style: &'a str, property: &str) -> Option<&'a str> {
             .eq_ignore_ascii_case(property)
             .then(|| value.trim().trim_end_matches("!important").trim())
     })
+}
+
+/// Neither the node nor any ancestor is hidden by attribute or inline style.
+fn visible_in_tree(node: &NodeRef) -> bool {
+    std::iter::once(*node).chain(node.ancestors_it(None)).all(|ancestor| {
+        let style = ancestor.attr("style").unwrap_or_default();
+        ancestor.attr("hidden").is_none()
+            && !ancestor.attr("aria-hidden").is_some_and(|v| v.eq_ignore_ascii_case("true"))
+            && !css_value(&style, "display").is_some_and(|v| v.eq_ignore_ascii_case("none"))
+            && !css_value(&style, "visibility").is_some_and(|v| v.eq_ignore_ascii_case("hidden"))
+    })
+}
+
+/// Bounded JSON-LD scan in document and breadth-first order: at most 16
+/// scripts of 256 KiB each and 64 nodes per script. `visit` returns true to stop.
+fn walk_json_ld(document: &Document, mut visit: impl FnMut(&serde_json::Value) -> bool) {
+    for node in document.select("script[type='application/ld+json']").nodes().iter().take(16) {
+        let raw = node.text();
+        if raw.len() > 256 * 1024 {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        let mut pending = VecDeque::from([&value]);
+        let mut visited = 0;
+        while let Some(node) = pending.pop_front() {
+            visited += 1;
+            if visited > 64 {
+                break;
+            }
+            if let Some(nodes) = node.as_array() {
+                pending.extend(nodes.iter().take(64));
+                continue;
+            }
+            if let Some(nodes) = node["@graph"].as_array() {
+                pending.extend(nodes.iter().take(64));
+            }
+            if visit(node) {
+                return;
+            }
+        }
+    }
 }
 
 fn has_bold_style(style: &str) -> bool {
@@ -401,7 +443,9 @@ fn verify_dom_depth(document: &Document) -> Result<()> {
     Ok(())
 }
 
-fn extract_html(blob: &VerifiedBlob, source_url: &str, structured: bool) -> Result<(String, String, bool, bool)> {
+/// Title, Markdown, whether comments were removed, and the Web V1 structure
+/// when `structured` was requested.
+fn extract_html(blob: &VerifiedBlob, source_url: &str, structured: bool) -> Result<(String, String, bool, Option<web::WebExtraction>)> {
     if blob.bytes.len() > MAX_HTML_BYTES {
         bail!("HTML artifact exceeds extraction size limit");
     }
@@ -416,27 +460,30 @@ fn extract_html(blob: &VerifiedBlob, source_url: &str, structured: bool) -> Resu
     {
         bail!("HTML source URL must be an absolute credential-free http or https URL");
     }
+    // Only explicit Web V1 requests change conversion semantics. Replaying an
+    // old capture must retain its original draft and extractor version.
+    if structured {
+        // Same preflight, depth check and comment removal as below, on its own parse.
+        let (extracted, comments_removed) = web::extract_webpage_with_comments(source_url, html)?;
+        return Ok((extracted.title.clone(), extracted.markdown.clone(), comments_removed, Some(extracted)));
+    }
     preflight_html_structure(html)?;
     let document = Document::from(html);
     verify_dom_depth(&document)?;
     let comments_removed = comments::remove_comments(&document);
-    // Only explicit Web V1 requests change conversion semantics. Replaying an
-    // old capture must retain its original draft and extractor version.
-    if structured {
-        let extracted = web::extract_webpage(source_url, html)?;
-        return Ok((extracted.title, extracted.markdown, comments_removed, true));
-    }
-    let article_view = comments_removed.then(|| document.html().to_string());
     let config = Config {
         max_elements_to_parse: MAX_HTML_ELEMENTS,
         ..Default::default()
     };
-    let mut readability = Readability::new(
-        article_view.as_deref().unwrap_or(html),
-        Some(source_url),
-        Some(config),
-    )
-    .context("initialize webpage readability extraction")?;
+    // An untouched parse is exactly what `Readability::new(html)` would build.
+    // After comment removal, keep the historical serialize-and-reparse view so
+    // replayed drafts stay byte-identical.
+    let readability = if comments_removed {
+        Readability::new(document.html().to_string(), Some(source_url), Some(config))
+    } else {
+        Readability::with_document(document, Some(source_url), Some(config))
+    };
+    let mut readability = readability.context("initialize webpage readability extraction")?;
     let article = readability
         .parse()
         .context("extract readable webpage content")?;
@@ -455,7 +502,7 @@ fn extract_html(blob: &VerifiedBlob, source_url: &str, structured: bool) -> Resu
         article.title,
         canonical_markdown(markdown)?,
         comments_removed,
-        false,
+        None,
     ))
 }
 
@@ -474,12 +521,12 @@ impl Extractor for GenericWebpageExtractor {
         if html_blobs.next().is_some() {
             bail!("capture contains multiple HTML artifacts");
         }
-        let (extracted_title, mut content_markdown, comments_removed, structured) = match html {
+        let (extracted_title, mut content_markdown, comments_removed, web_structure) = match html {
             Some(blob) => {
                 let structured = capture.capture.adapter_id == "memex.loopback-intake"
                     && capture.capture.adapter_version == "1-web-snapshot-v1";
-                let (title, markdown, removed, structured) = extract_html(blob, &capture.capture.source_url, structured)?;
-                (Some(title), markdown, removed, structured)
+                let (title, markdown, removed, web_structure) = extract_html(blob, &capture.capture.source_url, structured)?;
+                (Some(title), markdown, removed, web_structure)
             }
             None => (
                 None,
@@ -491,9 +538,10 @@ impl Extractor for GenericWebpageExtractor {
                     .collect::<Result<Vec<_>>>()?
                     .join("\n"),
                 false,
-                false,
+                None,
             ),
         };
+        let structured = web_structure.is_some();
         let title = if html.is_some() {
             non_empty(capture.capture.title.as_deref())
                 .or_else(|| non_empty(extracted_title.as_deref()))
@@ -508,9 +556,7 @@ impl Extractor for GenericWebpageExtractor {
         };
 
         let mut attachments = Vec::new();
-        if structured && capture.blobs.iter().any(|b| b.descriptor.media_type.starts_with("image/")) {
-            let blob = html.context("captured images require article HTML")?;
-            let extracted = web::extract_webpage(&capture.capture.source_url, blob_text(blob)?)?;
+        if let Some(extracted) = web_structure.filter(|_| capture.blobs.iter().any(|b| b.descriptor.media_type.starts_with("image/"))) {
             (content_markdown, attachments) = web::localize_images(
                 &extracted.html, &capture.capture.source_url, &capture.blobs,
             )?;
@@ -621,14 +667,7 @@ impl WeixinArticleExtractor {
         for region in [&content, &title] {
             anyhow::ensure!(region.length() == 0 || !region.text().trim().is_empty(), "weixin_body_missing");
             for node in region.nodes() {
-                for ancestor in std::iter::once(*node).chain(node.ancestors_it(None)) {
-                    let style = ancestor.attr("style").unwrap_or_default();
-                    anyhow::ensure!(ancestor.attr("hidden").is_none()
-                        && !ancestor.attr("aria-hidden").is_some_and(|v| v.eq_ignore_ascii_case("true"))
-                        && !css_value(&style, "display").is_some_and(|v| v.eq_ignore_ascii_case("none"))
-                        && !css_value(&style, "visibility").is_some_and(|v| v.eq_ignore_ascii_case("hidden")),
-                        "weixin_body_missing");
-                }
+                anyhow::ensure!(visible_in_tree(node), "weixin_body_missing");
             }
         }
         Ok(format!("<article>{}{}</article>", title.html(), content.html()))

@@ -17,6 +17,7 @@ use lots_scout_types::{
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::io::{BufRead, Read, Write};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 const MAX_HTML_BYTES: u64 = 8 * 1024 * 1024;
@@ -64,15 +65,24 @@ impl Article {
     }
 }
 
+fn client() -> Result<&'static reqwest::blocking::Client, Failure> {
+    static CLIENT: OnceLock<Result<reqwest::blocking::Client, String>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::blocking::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(Duration::from_secs(20))
+                .user_agent(USER_AGENT)
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|e| fail("network", e.clone()))
+}
+
 fn fetch(url: &str) -> Result<String, Failure> {
-    let client = reqwest::blocking::Client::builder()
-        .no_proxy()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(20))
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|e| fail("network", e.to_string()))?;
-    let response = client
+    let response = client()?
         .get(url)
         .header("Accept", "text/html,application/xhtml+xml")
         .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
@@ -91,6 +101,9 @@ fn fetch(url: &str) -> Result<String, Failure> {
             fail("unavailable", format!("文章跳转到了别处（HTTP {status}）"))
         });
     }
+    if matches!(status.as_u16(), 404 | 410) {
+        return Err(fail("unavailable", format!("文章不存在（HTTP {status}）")));
+    }
     if !status.is_success() {
         return Err(fail("network", format!("HTTP {status}")));
     }
@@ -106,18 +119,31 @@ fn fetch(url: &str) -> Result<String, Failure> {
 }
 
 /// The value of `var <name> = ...` in WeChat's inline script, unquoted and HTML-decoded.
+/// Only `<script>` element text is searched, so article body text cannot supply it.
 fn script_var(html: &str, name: &str) -> Option<String> {
-    let start = html.find(&format!("var {name} = "))? + name.len() + 7;
-    let rest = html[start..].trim_start();
+    let needle = format!("var {name} = ");
+    let mut scripts = html;
+    let script = loop {
+        let open = scripts.find("<script")?;
+        let body = &scripts[open..];
+        let body = &body[body.find('>')? + 1..];
+        let end = body.find("</script>").unwrap_or(body.len());
+        if let Some(found) = body[..end].find(&needle) {
+            break &body[found + needle.len()..end];
+        }
+        scripts = &body[end..];
+    };
+    let rest = script.trim_start();
     let rest = rest.strip_prefix("htmlDecode(").unwrap_or(rest);
     let quote = rest.chars().next().filter(|c| *c == '"' || *c == '\'')?;
     let value = rest[1..].split(quote).next()?.trim();
+    // `&amp;` last, so `&amp;lt;` decodes once to `&lt;`, not to `<`.
     let value = value
-        .replace("&amp;", "&")
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace("&lt;", "<")
-        .replace("&gt;", ">");
+        .replace("&gt;", ">")
+        .replace("&amp;", "&");
     (!value.is_empty() && value.len() <= 256).then_some(value)
 }
 
@@ -222,7 +248,8 @@ const VERIFY_HINT: &str = "请用户在自己的 Chrome 里打开这篇文章并
 
 fn tool_result(args: &Value) -> Value {
     let input = args.get("url").and_then(Value::as_str).unwrap_or("");
-    let max_chars = args.get("max_chars").and_then(Value::as_u64).map(|n| n as usize);
+    // The schema advertises a minimum of 200; smaller requests are raised to it.
+    let max_chars = args.get("max_chars").and_then(Value::as_u64).map(|n| (n as usize).max(200));
     match read_article(input) {
         Ok(article) => json!({
             "content": [{ "type": "text", "text": article.render(max_chars) }],
@@ -355,6 +382,13 @@ var ct = "1654852560";</script>
         assert!(md.contains("大模型时代的生态建设"));
         assert!(!md.contains("扫码") && !md.contains("关注"));
         assert!(a.render(Some(200)).ends_with("…（已截断）\n"));
+    }
+
+    #[test]
+    fn script_vars_come_only_from_scripts_and_decode_once() {
+        let html = r#"<p>var ct = "1"</p><script>var nickname = htmlDecode("a&amp;lt;b");</script>"#;
+        assert_eq!(script_var(html, "ct"), None);
+        assert_eq!(script_var(html, "nickname").as_deref(), Some("a&lt;b"));
     }
 
     #[test]

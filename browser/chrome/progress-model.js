@@ -119,6 +119,7 @@ const NOT_SENT = {
   settings_required: tx('没有发出：设置里缺少收录入口或连接密钥'),
   feature_missing: tx('没有发出：Mac 端没有开放链接任务'),
   not_found: tx('没有发出：本地列表里已找不到这条'),
+  intake_changed: tx('没有发出：收录入口或连接密钥已变化，原快照不能用于新请求'),
   no_response: tx('后台没有回应，{0}可能没有发出；请在 chrome://extensions 重新加载 元芳扩展后再试')
 };
 // Why an action of kind `verb` was not sent, for a fixed code (mac_unreachable when unknown).
@@ -184,9 +185,15 @@ export function describe(job, now = Date.now()) {
       web_load_timeout: tx('网页加载超时'), unsafe_web_url: tx('不安全的网页地址'), intake_changed: tx('收录入口已变化，原快照未重投'),
       snapshot_missing: tx('原快照缺失，不能重新抓取冒充原请求'), web_feature_missing: tx('Mac 未开放网页快照'),
       browser_visit_in_progress: tx('正在可见访问，或访问已中断；在途不可取消。中断后请先关闭遗留标签页，再核对原请求'),
-      web_content_conflict: tx('正文或原请求冲突，未覆盖'), interactive_login_required: tx('需要登录或人工验证，未采集') };
+      web_content_conflict: tx('正文或原请求冲突，未覆盖'), interactive_login_required: tx('需要登录或人工验证，未采集'),
+      settings_required: tx('设置里缺少收录入口或连接密钥'), page_changed: tx('页面在抓取时变了，未采集'),
+      invalid_receipt: tx('Mac 的回执无法识别，结果未确认'), unknown_capture: tx('快照已发出但没有收到确认，结果未知'),
+      interactive_control_detected: tx('Mac 拒收：页面含需要操作的交互控件'), interactive_authentication_detected: tx('Mac 拒收：页面要求登录或身份验证'),
+      automated_access_challenge_detected: tx('Mac 拒收：页面是人机验证'), html_has_no_visible_content: tx('Mac 拒收：页面没有可见正文'),
+      generic_html_requires_preview: tx('Mac 拒收：这类普通网页需先在 Mac 端预览确认') };
+    const intake = /^intake_(\d{3})$/.exec(job.reason || "");
     const parts = [job.reason === "browser_visit_in_progress" ? tx('可见访问／中断核对') : labels[job.state] || tx('网页抓取已停止，需处理')];
-    if (job.reason) parts.push(reasons[job.reason] || REASON_TEXT[job.reason] || job.reason);
+    if (job.reason) parts.push(reasons[job.reason] || REASON_TEXT[job.reason] || (intake ? tx('Mac 收录服务返回 HTTP {0}，结果未确认', intake[1]) : job.reason));
     if (job.missing_images) parts.push(tx('{0} 张图片未取得本地证据，保留原链接', job.missing_images));
     return { tone: job.state === "succeeded" ? "ok" : job.state === "cancelled" ? "muted" : job.state === "pending" ? "busy" : "warn", text: parts.join(" · ") };
   }
@@ -221,24 +228,4 @@ export function describe(job, now = Date.now()) {
   else if (QUALITY_TEXT[quality.state]) parts.push(QUALITY_TEXT[quality.state]);
   if (COMMENT_TEXT[job.comments?.state]) parts.push(COMMENT_TEXT[job.comments.state]);
   return { tone, text: parts.join(" · ") };
-}
-
-// Batch total for the no-generation podcast mode. "Submitted" means the Mac returned a job.
-export function summarizePodcast(jobs) {
-  const count = { submitted: 0, busy: 0, done: 0, failed: 0, unknown: 0, needs: 0, cancelled: 0, unsent: 0 };
-  for (const job of jobs) {
-    if (job.job_id) count.submitted += 1;
-    if (job.state === "succeeded") count.done += 1;
-    else if (job.state === "failed" || job.state === "rejected") count.failed += 1;
-    else if (job.state === "unknown" || !STATE_TEXT[job.state]) count.unknown += 1;
-    else if (job.state === "needs_user" || job.state === "blocked" || job.state === "unconfirmed") count.needs += 1;
-    else if (job.state === "cancelled") count.cancelled += 1;
-    else if (job.state === "unavailable") count.unsent += 1;
-    else count.busy += 1;
-  }
-  const parts = [tx('已提交 {0}', count.submitted), tx('进行中 {0}', count.busy), tx('完成 {0}', count.done), tx('失败 {0}', count.failed), tx('未知 {0}', count.unknown)];
-  if (count.needs) parts.push(tx('需处理 {0}', count.needs));
-  if (count.cancelled) parts.push(tx('已取消 {0}', count.cancelled));
-  if (count.unsent) parts.push(tx('未发送 {0}', count.unsent));
-  return { count, text: parts.join(" · ") };
 }
