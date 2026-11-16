@@ -28,6 +28,7 @@ pub use weixin::WeixinAssets;
 pub mod web;
 pub mod ratings;
 pub mod titles;
+pub mod x;
 pub use lots_scout_types::{
     normalize_title_lang, ItemTitle, Rating, RatingMetric, TitleKind, TitleSource,
 };

@@ -1,15 +1,19 @@
-//! Local MCP server (stdio) and CLI that read public WeChat articles into Markdown.
+//! Local MCP server (stdio) and CLI that read public WeChat articles and X posts into Markdown.
 //!
 //! It runs on the user's own machine and network: WeChat answers requests from data-centre
 //! IPs with a verification page, but serves the public article to an ordinary local request.
 //! It sends no cookies, logs in nowhere, uses no proxy and never solves or bypasses a
 //! verification page: when WeChat asks for one, the result says `verify_required`.
 //!
-//!   lots-scout-mcp              serve MCP over stdio
-//!   lots-scout-mcp read <url>   print one article as Markdown
+//! X posts, X Articles and replies come from the public FxTwitter API (api.fxtwitter.com), with
+//! no X login, cookies or API key.
+//!
+//!   lots-scout-mcp                            serve MCP over stdio
+//!   lots-scout-mcp read <url>                 print one WeChat article as Markdown
+//!   lots-scout-mcp x <url> [--replies <n>]    print one X post with its replies as Markdown
 
 use anyhow::{Context, Result};
-use lots_scout_extract::WeixinArticleExtractor;
+use lots_scout_extract::{x, WeixinArticleExtractor};
 use lots_scout_types::{
     BlobDescriptor, CaptureEnvelope, Sensitivity, SourceProfile, VerifiedBlob, VerifiedCapture,
     SCHEMA_VERSION,
@@ -24,6 +28,10 @@ const MAX_HTML_BYTES: u64 = 8 * 1024 * 1024;
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 \
 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36";
 const TOOL: &str = "read_wechat_article";
+const X_TOOL: &str = "read_x_post";
+const DEFAULT_X_REPLIES: usize = 50;
+const MAX_X_REPLIES: usize = 500;
+const MAX_X_PAGES: usize = 20;
 
 /// Why an article could not be read. `code` is stable for agents to branch on.
 #[derive(Debug, PartialEq)]
@@ -243,6 +251,78 @@ fn read_article(input: &str) -> Result<Article, Failure> {
     parse(&url, html, &chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
 
+fn fetch_json(url: &str) -> Result<String, Failure> {
+    let response = client()?
+        .get(url)
+        .header("Accept", "application/json")
+        .send()
+        .map_err(|e| fail("network", format!("请求失败：{e}")))?;
+    let status = response.status();
+    // FxTwitter answers 404 and 401 with a JSON body whose `code` says why; let the parser read it.
+    if !status.is_success() && !matches!(status.as_u16(), 401 | 403 | 404) {
+        return Err(fail("network", format!("HTTP {status}")));
+    }
+    let mut bytes = Vec::new();
+    response
+        .take(x::MAX_X_JSON_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| fail("network", format!("读取失败：{e}")))?;
+    String::from_utf8(bytes).map_err(|_| fail("network", "响应不是 UTF-8"))
+}
+
+fn x_failure(e: anyhow::Error) -> Failure {
+    match e.to_string().as_str() {
+        "x_post_unavailable" => fail("unavailable", "帖子不存在或已删除"),
+        "x_post_private" => fail("unavailable", "帖子受保护，需要登录才能看"),
+        other => fail("extract_failed", format!("解析失败：{other}")),
+    }
+}
+
+/// One X post with up to `max_replies` replies, following the reply cursor page by page.
+fn read_x(input: &str, max_replies: usize) -> Result<(x::XConversation, String), Failure> {
+    let id = x::x_status_id(input).ok_or_else(|| {
+        fail("unsupported_url", "只支持 X 帖子链接 https://x.com/<用户>/status/<编号>")
+    })?;
+    let first = x::parse_x_conversation(&fetch_json(&x::x_conversation_url(&id, None))?).map_err(x_failure)?;
+    let mut replies = first.replies.clone();
+    let mut cursor = first.next_cursor.clone();
+    for _ in 1..MAX_X_PAGES {
+        let Some(c) = cursor.take().filter(|_| replies.len() < max_replies) else { break };
+        // A later page that fails keeps the replies already read.
+        let Ok(page) = fetch_json(&x::x_conversation_url(&id, Some(&c))).map_err(|_| ()).and_then(|b| x::parse_x_conversation(&b).map_err(|_| ())) else { break };
+        if page.replies.is_empty() {
+            break;
+        }
+        replies.extend(page.replies);
+        cursor = page.next_cursor;
+    }
+    replies.truncate(max_replies);
+    let markdown = x::render_x_markdown(&first, &replies);
+    Ok((first, markdown))
+}
+
+fn x_tool_result(args: &Value) -> Value {
+    let input = args.get("url").and_then(Value::as_str).unwrap_or("");
+    let max_replies = args
+        .get("max_replies")
+        .and_then(Value::as_u64)
+        .map_or(DEFAULT_X_REPLIES, |n| (n as usize).min(MAX_X_REPLIES));
+    match read_x(input, max_replies) {
+        Ok((c, markdown)) => json!({
+            "content": [{ "type": "text", "text": markdown }],
+            "structuredContent": { "status": "ok", "url": c.status.url, "title": x::x_title(&c.status),
+                "author": c.status.author_handle, "published": c.status.created_at,
+                "is_article": c.status.article.is_some() },
+            "isError": false
+        }),
+        Err(f) => json!({
+            "content": [{ "type": "text", "text": format!("{}：{}", f.code, f.message) }],
+            "structuredContent": { "status": f.code, "message": f.message },
+            "isError": true
+        }),
+    }
+}
+
 const VERIFY_HINT: &str = "请用户在自己的 Chrome 里打开这篇文章并完成验证，然后用元芳（Lots Scout）收录，\
 或稍后再试。本工具不会绕过验证。";
 
@@ -270,6 +350,20 @@ fn tool_result(args: &Value) -> Value {
 
 fn tools() -> Value {
     json!([{
+        "name": X_TOOL,
+        "title": "读取 X 帖子与回复",
+        "description": "Read a public X (Twitter) post by link, including a long-form X Article body, \
+the author's own follow-up thread and replies, as Markdown. Uses the public FxTwitter API; no X login, \
+cookies or API key, so protected posts are unavailable.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": { "type": "string", "description": "Post link (x.com or twitter.com /status/<id>), or text containing one" },
+                "max_replies": { "type": "integer", "minimum": 0, "maximum": 500, "description": "Replies to include (default 50)" }
+            },
+            "required": ["url"]
+        }
+    }, {
         "name": TOOL,
         "title": "读取微信公众号文章",
         "description": "Read a public WeChat Official Account article (https://mp.weixin.qq.com/s/<id>) \
@@ -299,10 +393,12 @@ fn handle(request: &Value) -> Option<Value> {
         "ping" => json!({}),
         "tools/list" => json!({ "tools": tools() }),
         "tools/call" => {
-            if request.pointer("/params/name").and_then(Value::as_str) != Some(TOOL) {
-                return Some(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32602, "message": "unknown tool" } }));
+            let args = request.pointer("/params/arguments").unwrap_or(&Value::Null);
+            match request.pointer("/params/name").and_then(Value::as_str) {
+                Some(TOOL) => tool_result(args),
+                Some(X_TOOL) => x_tool_result(args),
+                _ => return Some(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32602, "message": "unknown tool" } })),
             }
-            tool_result(request.pointer("/params/arguments").unwrap_or(&Value::Null))
         }
         _ => return Some(json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "method not found" } })),
     };
@@ -343,7 +439,24 @@ fn main() -> Result<()> {
                 std::process::exit(if f.code == "verify_required" { 3 } else { 1 });
             }
         },
-        _ => Err(anyhow::anyhow!("usage: lots-scout-mcp [read <url>]")).context("invalid arguments"),
+        [cmd, url, rest @ ..] if cmd == "x" => {
+            let max_replies = match rest {
+                [] => DEFAULT_X_REPLIES,
+                [flag, n] if flag == "--replies" => n.parse::<usize>().context("--replies takes a number")?.min(MAX_X_REPLIES),
+                _ => anyhow::bail!("usage: lots-scout-mcp x <url> [--replies <n>]"),
+            };
+            match read_x(url, max_replies) {
+                Ok((_, markdown)) => {
+                    print!("{markdown}");
+                    Ok(())
+                }
+                Err(f) => {
+                    eprintln!("{}：{}", f.code, f.message);
+                    std::process::exit(1);
+                }
+            }
+        }
+        _ => Err(anyhow::anyhow!("usage: lots-scout-mcp [read <url> | x <url> [--replies <n>]]")).context("invalid arguments"),
     }
 }
 
@@ -400,9 +513,12 @@ var ct = "1654852560";</script>
     }
 
     #[test]
-    fn mcp_lists_one_tool_and_rejects_unknown_ones() {
+    fn mcp_lists_both_tools_and_rejects_unknown_ones() {
         let list = handle(&json!({"jsonrpc":"2.0","id":1,"method":"tools/list"})).unwrap();
-        assert_eq!(list["result"]["tools"][0]["name"], TOOL);
+        let names: Vec<&str> = list["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert_eq!(names, [X_TOOL, TOOL]);
+        let x_unsupported = handle(&json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":X_TOOL,"arguments":{"url":"https://x.com/i/article/1"}}})).unwrap();
+        assert_eq!(x_unsupported["result"]["structuredContent"]["status"], "unsupported_url");
         let bad = handle(&json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"x","arguments":{}}})).unwrap();
         assert_eq!(bad["error"]["code"], -32602);
         assert!(handle(&json!({"jsonrpc":"2.0","method":"notifications/initialized"})).is_none());

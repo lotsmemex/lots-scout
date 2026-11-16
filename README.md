@@ -11,7 +11,7 @@ Its Chinese name is 元芳.
 | `browser/chrome/` | The Chrome extension (Manifest V3). No build step, no dependencies. |
 | `crates/lots-scout-types/` | Capture input and draft output types. Depends only on `serde`. |
 | `crates/lots-scout-extract/` | Extractors: generic web page, WeChat article, Linkresearcher, Amp podcast, comment extraction; page ratings and pure helpers for rating and title lookups. |
-| `crates/lots-scout-mcp/` | Local MCP server and CLI that read public WeChat articles into Markdown. |
+| `crates/lots-scout-mcp/` | Local MCP server and CLI that read public WeChat articles and X posts into Markdown. |
 | `sources/` | One manifest and one prose description of the rules per source. |
 | `vendor/dom_smoothie/` | dom_smoothie 0.18.0 (MIT), vendored to make equal-score candidate ordering deterministic. |
 
@@ -30,9 +30,12 @@ The extension is not in the Chrome Web Store yet. Chrome only installs it from a
 To update, unzip the new release over the same folder and click the reload button on the
 extension's card in `chrome://extensions`.
 
-## Read WeChat articles from your AI agent (MCP)
+## Read WeChat articles and X posts from your AI agent (MCP)
 
-`lots-scout-mcp` is a small local MCP server with one tool, `read_wechat_article`. Give it a public WeChat Official Account link (`https://mp.weixin.qq.com/s/...`) and it returns clean Markdown with the title, account name and publish time.
+`lots-scout-mcp` is a small local MCP server with two tools:
+
+- `read_wechat_article`: give it a public WeChat Official Account link (`https://mp.weixin.qq.com/s/...`) and it returns clean Markdown with the title, account name and publish time.
+- `read_x_post`: give it an X post link (`https://x.com/<user>/status/<id>`) and it returns the post, the full body of an X Article, the author's own follow-up thread and up to `max_replies` replies (default 50, at most 500) as Markdown. It reads the public [FxTwitter](https://github.com/FixTweet/FxTwitter) API: no X login, cookies or API key, so protected posts are not available, and it depends on that free service staying up.
 
 It runs on your own Mac and network. WeChat shows cloud servers a verification page, but serves the public article to an ordinary local request. It logs in nowhere, sends no cookies, uses no proxy and never solves or bypasses a verification page: when WeChat asks for one, the result is `verify_required`, and you open the article in your own browser.
 
@@ -51,7 +54,7 @@ Then add it to your agent:
 - Claude Code: `claude mcp add --scope user wechat-reader -- ~/.local/bin/lots-scout-mcp`
 - Cursor and others: a stdio server whose command is `~/.local/bin/lots-scout-mcp`.
 
-It also works from a terminal: `lots-scout-mcp read <link>`.
+It also works from a terminal: `lots-scout-mcp read <link>` for WeChat, `lots-scout-mcp x <link> [--replies <n>]` for X.
 
 ## Build and test
 
@@ -64,11 +67,11 @@ cd browser/chrome && npm test && npm run package   # writes dist/lots-scout-chro
 
 ```toml
 [dependencies]
-lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.6" }
+lots-scout-extract = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.7" }
 
 # Cargo does not pass patches on to dependents; repeat this one in your workspace.
 [patch.crates-io]
-dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.6" }
+dom_smoothie = { git = "https://github.com/lotsmemex/lots-scout", tag = "v0.2.7" }
 ```
 
 `lots_scout_extract::extract(&capture)` picks the extractor that recognizes a verified
